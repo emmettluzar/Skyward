@@ -2,8 +2,12 @@
 
 import { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Moon, MapPin, Sparkles, Settings } from "lucide-react";
+import { Moon, MapPin, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { VerdictCard } from "@/components/verdict/VerdictCard";
+import { HourRibbon } from "@/components/tonight/HourRibbon";
+import { useVerdict } from "@/lib/hooks/use-verdict";
+import { useConditions } from "@/lib/hooks/use-conditions";
 
 // Lazy-load MapLibre to avoid SSR issues (WebGL, window, etc.)
 const MapView = dynamic(() => import("@/components/map/MapView"), {
@@ -18,6 +22,14 @@ const MapView = dynamic(() => import("@/components/map/MapView"), {
   ),
 });
 
+/**
+ * Hardcoded fallback location used until live browser geolocation is wired up
+ * (per the task brief, "use dummy or hardcoded coordinates"). A mundane urban
+ * coordinate is deliberate: it yields a truthful "UNKNOWN-darkness, likely
+ * bright/murky" verdict rather than promising a dark sky at a fake wilderness.
+ */
+const FALLBACK_LOCATION = { lat: 40.7128, lon: -74.006 };
+
 export default function HomeShell() {
   const [userLocation, setUserLocation] = useState<{
     lat: number;
@@ -29,6 +41,24 @@ export default function HomeShell() {
     setUserLocation({ lat, lng });
     setLocationLoading(false);
   }, []);
+
+  // Use the live geolocation when available, otherwise the hardcoded fallback.
+  const activeLat = userLocation?.lat ?? FALLBACK_LOCATION.lat;
+  const activeLon = userLocation?.lng ?? FALLBACK_LOCATION.lon;
+
+  const verdict = useVerdict({
+    lat: activeLat,
+    lon: activeLon,
+    enabled: true,
+  });
+
+  const conditions = useConditions({
+    lat: activeLat,
+    lon: activeLon,
+    enabled: true,
+  });
+
+  const conditionsPoint = conditions.data?.points[0];
 
   return (
     <div className="relative flex h-dvh w-full overflow-hidden bg-background">
@@ -60,74 +90,35 @@ export default function HomeShell() {
 
       {/* ── Bottom Sheet: Verdict + Tonight ── */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-3 px-4 pb-5 sm:px-6 sm:pb-6">
+        {/* Location status line */}
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <MapPin className="size-3.5" />
+          {locationLoading ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="block size-2 animate-pulse rounded-full bg-primary" />
+              Finding your location…
+            </span>
+          ) : (
+            <span>
+              {activeLat.toFixed(3)}°, {activeLon.toFixed(3)}°
+              {userLocation === null ? " (fallback)" : ""}
+            </span>
+          )}
+        </div>
+
         {/* Verdict Card */}
-        <div className="rounded-2xl border border-border/50 bg-card/90 p-4 shadow-lg backdrop-blur-xl sm:p-5">
-          {/* Location status */}
-          <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="size-3.5" />
-            {locationLoading ? (
-              <span className="inline-flex items-center gap-1.5">
-                <span className="block size-2 animate-pulse rounded-full bg-primary" />
-                Finding your location…
-              </span>
-            ) : userLocation ? (
-              <span>
-                {userLocation.lat.toFixed(3)}°,{" "}
-                {userLocation.lng.toFixed(3)}°
-              </span>
-            ) : (
-              <span>Location unavailable</span>
-            )}
-          </div>
+        <VerdictCard
+          verdict={verdict.data}
+          isLoading={verdict.isLoading}
+          isError={verdict.isError}
+        />
 
-          {/* Placeholder verdict */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex size-12 items-center justify-center rounded-full bg-secondary">
-                <Sparkles className="size-5 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-lg font-semibold leading-tight">
-                  Finding the best sky…
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Analyzing darkness, clouds & moon for tonight
-                </p>
-              </div>
-            </div>
-            <div className="hidden sm:block">
-              <div className="rounded-full bg-secondary px-4 py-1.5 text-xs font-medium text-muted-foreground">
-                Phase 1 MVP
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tonight Ribbon Placeholder */}
-        <div className="rounded-2xl border border-border/50 bg-card/90 p-3 shadow-lg backdrop-blur-xl sm:p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Tonight · 6pm – 6am
-            </span>
-            <span className="text-xs text-muted-foreground">
-              Awaiting site selection
-            </span>
-          </div>
-          <div className="mt-2 flex gap-1">
-            {Array.from({ length: 13 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-8 flex-1 rounded-sm bg-secondary"
-                title={`${i + 6}pm – ${i + 7}${i + 6 >= 12 ? "am" : "pm"}`}
-              />
-            ))}
-          </div>
-          <div className="mt-2 flex justify-between text-[10px] text-muted-foreground/60">
-            <span>6pm</span>
-            <span>Midnight</span>
-            <span>6am</span>
-          </div>
-        </div>
+        {/* Tonight Ribbon */}
+        <HourRibbon
+          point={conditionsPoint}
+          isLoading={conditions.isLoading}
+          isError={conditions.isError}
+        />
       </div>
     </div>
   );
