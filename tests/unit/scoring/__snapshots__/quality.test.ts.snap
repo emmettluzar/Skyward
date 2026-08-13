@@ -1,0 +1,91 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`observing quality Q (multiplicative) > snapshots the six required fixtures 1`] = `
+{
+  "factors": {
+    "A_access": 1,
+    "C_cloud": 0.886,
+    "H_open": 1,
+    "M_moon": 0.998,
+    "S_dark": 0.99,
+    "T_trans": 0.99,
+  },
+  "name": "bortle-2-desert",
+  "value": 86.66,
+}
+`;
+
+exports[`observing quality Q (multiplicative) > snapshots the six required fixtures 2`] = `
+{
+  "factors": {
+    "A_access": 1,
+    "C_cloud": 0.886,
+    "H_open": 0.901,
+    "M_moon": 0.998,
+    "S_dark": 0.156,
+    "T_trans": 0.684,
+  },
+  "name": "bortle-8-urban",
+  "value": 8.5,
+}
+`;
+
+exports[`observing quality Q (multiplicative) > snapshots the six required fixtures 3`] = `
+{
+  "factors": {
+    "A_access": 1,
+    "C_cloud": 0.009,
+    "H_open": 0.98,
+    "M_moon": 0.241,
+    "S_dark": 0.99,
+    "T_trans": 0.766,
+  },
+  "name": "full-moon-overcast",
+  "value": 0.16,
+}
+`;
+
+exports[`observing quality Q (multiplicative) > snapshots the six required fixtures 4`] = `
+{
+  "factors": {
+    "A_access": 1,
+    "C_cloud": 0.994,
+    "H_open": 1,
+    "M_moon": 1,
+    "S_dark": 1,
+    "T_trans": 1,
+  },
+  "name": "new-moon-clear",
+  "value": 99.45,
+}
+`;
+
+exports[`observing quality Q (multiplicative) > snapshots the six required fixtures 5`] = `
+{
+  "factors": {
+    "A_access": 1,
+    "C_cloud": 0.886,
+    "H_open": 0.821,
+    "M_moon": 0.998,
+    "S_dark": 0.99,
+    "T_trans": 0.99,
+  },
+  "name": "canyon-blocked-horizon",
+  "value": 71.18,
+}
+`;
+
+exports[`observing quality Q (multiplicative) > snapshots the six required fixtures 6`] = `
+{
+  "factors": {
+    "A_access": 0.9,
+    "C_cloud": 0.886,
+    "H_open": 0.96,
+    "M_moon": 0.998,
+    "S_dark": 0.913,
+    "T_trans": 0.985,
+  },
+  "name": "gated-park",
+  "value": 68.71,
+}
+`;
