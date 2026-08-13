@@ -403,7 +403,10 @@ export async function fetchSnapTargetsForCells(
         url: `${endpoint}`,
         schema: overpassResponseSchema,
         service: "Overpass",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "skyward.app/1.0 (stargazing trip planner; https://github.com/skyward)",
+        },
         method: "POST",
         body: body.toString(),
       });

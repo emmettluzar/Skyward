@@ -20,11 +20,14 @@ export function TimeBudgetPanel({
   isLoading,
   isError,
   onSpotSelect,
+  onDismiss,
 }: {
   spots: CandidateSpot[];
   isLoading: boolean;
   isError: boolean;
   onSpotSelect?: (spot: CandidateSpot) => void;
+  /** When provided, shows a dismiss button on the empty state. */
+  onDismiss?: () => void;
 }) {
   if (isLoading) {
     return (
@@ -55,9 +58,23 @@ export function TimeBudgetPanel({
   if (spots.length === 0) {
     return (
       <div className="rounded-2xl border border-border/50 bg-card/90 p-4 shadow-lg backdrop-blur-xl">
-        <p className="text-sm text-muted-foreground">
-          No publicly accessible spots found within this drive time.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            No publicly accessible spots found within this drive time.
+          </p>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="shrink-0 rounded-full p-0.5 text-muted-foreground/60 hover:text-muted-foreground"
+              aria-label="Dismiss"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 3l8 8M11 3l-8 8" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
     );
   }

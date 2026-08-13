@@ -263,3 +263,12 @@
   height: 100%;
   min-height: 0;
 }
+
+/* Push MapLibre controls above the bottom sheet so they remain clickable.
+   The bottom sheet is ~40-50% of the viewport; 45dvh gives comfortable clearance. */
+.maplibregl-ctrl-bottom-right {
+  bottom: 45dvh !important;
+}
+.maplibregl-ctrl-bottom-left {
+  bottom: 45dvh !important;
+}

@@ -27,21 +27,22 @@ const DEFAULT_CENTER: [number, number] = [-98.6, 39.8];
 const DEFAULT_ZOOM = 4;
 
 /** Marker + isochrone colors. Dark theme uses Skyward's blue; red theme is
-  * monochrome red so no white/blue pixels leak into the field theme. */
+  * monochrome red so no white/blue pixels leak into the field theme.
+  * MapLibre GL JS does not support oklch() — hex equivalents below. */
 const COLORS = {
   dark: {
-    markerPrimary: "oklch(0.65 0.18 250)",
-    markerSecondary: "oklch(0.45 0.12 250)",
+    markerPrimary: "#5b9ef5",
+    markerSecondary: "#3a6fc7",
     markerBorder: "#ffffff",
     markerText: "#ffffff",
-    isochroneFill: "oklch(0.65 0.18 250)",
+    isochroneFill: "#5b9ef5",
   },
   red: {
-    markerPrimary: "oklch(0.5 0.14 25)",
-    markerSecondary: "oklch(0.38 0.11 25)",
-    markerBorder: "oklch(0.06 0 0)",
-    markerText: "oklch(0.08 0 0)",
-    isochroneFill: "oklch(0.45 0.13 25)",
+    markerPrimary: "#c7523b",
+    markerSecondary: "#963d2c",
+    markerBorder: "#0f0f0f",
+    markerText: "#141414",
+    isochroneFill: "#b34934",
   },
 } as const;
 
@@ -126,6 +127,20 @@ const MapView: FC<MapViewProps> = ({
     // Listen on the geolocate control, not the map
     geolocate.on("geolocate", onGeolocate);
     geolocate.on("error", onGeolocateError);
+
+    // Handle missing sprite images from the OpenFreeMap style (e.g. "circle-11",
+    // "wood-pattern"). We generate a tiny 1×1 transparent PNG as a fallback so
+    // MapLibre doesn't spam the console.
+    map.on("styleimagemissing", (e: { id: string }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.clearRect(0, 0, 1, 1);
+      }
+      map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 0]) });
+    });
 
     // Trigger geolocation once style loads
     map.on("style.load", () => {
