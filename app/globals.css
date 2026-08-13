@@ -73,6 +73,31 @@
   --chart-3: oklch(0.45 0.12 250);
   --chart-4: oklch(0.35 0.1 250);
   --chart-5: oklch(0.25 0.08 250);
+
+  /* ── Themeable signal tokens (verdict chips, tonight ribbon) ── */
+  /* Defined per theme so red-light mode can be pure monochrome red — the
+     red block below collapses every hue to ~20–28 (never blue ∼230+ or white). */
+  --verdict-go-bg: oklch(0.65 0.17 155 / 15%);
+  --verdict-go-text: oklch(0.75 0.16 155);
+  --verdict-go-border: oklch(0.65 0.17 155 / 30%);
+  --verdict-maybe-bg: oklch(0.75 0.14 85 / 15%);
+  --verdict-maybe-text: oklch(0.8 0.13 85);
+  --verdict-maybe-border: oklch(0.75 0.14 85 / 30%);
+  --verdict-stay-bg: oklch(0.62 0.16 22 / 15%);
+  --verdict-stay-text: oklch(0.7 0.16 22);
+  --verdict-stay-border: oklch(0.62 0.16 22 / 30%);
+  --verdict-unknown-bg: oklch(0.7 0.1 250 / 15%);
+  --verdict-unknown-text: oklch(0.78 0.09 250);
+  --verdict-unknown-border: oklch(0.7 0.1 250 / 30%);
+  --twilight-day: oklch(0.8 0.06 230 / 25%);
+  --twilight-civil: oklch(0.8 0.06 230 / 45%);
+  --twilight-nautical: oklch(0.75 0.08 270 / 65%);
+  --twilight-astro: oklch(0.72 0.08 280 / 85%);
+  --cloud-high: oklch(0.85 0.03 230 / 45%);
+  --cloud-mid: oklch(0.8 0.01 250 / 50%);
+  --cloud-low: oklch(0.55 0.02 260 / 70%);
+  --goability-dot: oklch(0.62 0.19 150);
+
   --radius: 0.625rem;
   --sidebar: oklch(0.14 0 0);
   --sidebar-foreground: oklch(0.85 0 0);
@@ -118,6 +143,29 @@
   --sidebar-accent-foreground: oklch(0.4 0.1 25);
   --sidebar-border: oklch(0.35 0.1 25 / 25%);
   --sidebar-ring: oklch(0.4 0.14 25);
+
+  /* All signal tokens collapse to monochrome red (hue ~20–28) — never blue
+     (~230+) or white — so the field theme has zero white/blue pixels. */
+  --verdict-go-bg: oklch(0.4 0.13 25 / 25%);
+  --verdict-go-text: oklch(0.55 0.13 25);
+  --verdict-go-border: oklch(0.4 0.13 25 / 45%);
+  --verdict-maybe-bg: oklch(0.36 0.12 22 / 25%);
+  --verdict-maybe-text: oklch(0.52 0.12 22);
+  --verdict-maybe-border: oklch(0.36 0.12 22 / 45%);
+  --verdict-stay-bg: oklch(0.32 0.1 20 / 28%);
+  --verdict-stay-text: oklch(0.5 0.1 20);
+  --verdict-stay-border: oklch(0.32 0.1 20 / 50%);
+  --verdict-unknown-bg: oklch(0.38 0.11 28 / 25%);
+  --verdict-unknown-text: oklch(0.54 0.11 28);
+  --verdict-unknown-border: oklch(0.38 0.11 28 / 45%);
+  --twilight-day: oklch(0.4 0.11 25 / 25%);
+  --twilight-civil: oklch(0.42 0.12 25 / 45%);
+  --twilight-nautical: oklch(0.45 0.13 25 / 65%);
+  --twilight-astro: oklch(0.5 0.14 25 / 85%);
+  --cloud-high: oklch(0.42 0.12 25 / 45%);
+  --cloud-mid: oklch(0.38 0.1 22 / 50%);
+  --cloud-low: oklch(0.32 0.08 20 / 70%);
+  --goability-dot: oklch(0.55 0.14 25);
 }
 
 /* ── Light theme (kept for system-preference fallback, not primary) ── */
@@ -168,12 +216,36 @@
 }
 
 /* ── MapLibre overrides for red-light mode ── */
-/* In red mode, the map canvas gets a red-tint overlay via mix-blend-mode
-   or a semi-transparent red overlay. We use a pseudo-element approach
-   on the map container so the map itself renders normally but appears red. */
-[data-theme="red"] .maplibregl-map .maplibregl-canvas-container {
-  /* The canvas itself can't be CSS-filtered without breaking WebGL context.
-     Instead we apply a red overlay via the container's ::after in the component. */
+/* The WebGL canvas can't be hue-shifted with a CSS `filter` without breaking
+   the GL context, so a red multiply overlay grades the dark basemap toward
+   monochrome red. This is a blend, not the "filter hack" .clinerules §5 bans.
+   The overlay lives in the MapView component; these rules style it + MapLibre's
+   own white-on-dark chrome so no white/blue pixels remain. */
+[data-theme="red"] .map-red-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: oklch(0.4 0.14 25 / 28%);
+  mix-blend-mode: multiply;
+}
+[data-theme="red"] .maplibregl-ctrl-attrib {
+  background: oklch(0.03 0 0 / 70%);
+  color: oklch(0.45 0.12 25);
+}
+[data-theme="red"] .maplibregl-ctrl-attrib a {
+  color: oklch(0.5 0.13 25);
+}
+[data-theme="red"] .maplibregl-popup-content {
+  background: oklch(0.05 0 0);
+  color: oklch(0.5 0.13 25);
+  box-shadow: 0 2px 8px oklch(0 0 0 / 60%);
+}
+[data-theme="red"] .maplibregl-popup-content a {
+  color: oklch(0.55 0.14 25);
+}
+[data-theme="red"] .maplibregl-popup-tip {
+  border-top-color: oklch(0.05 0 0);
 }
 
 /* ── Utility: hide scrollbar but keep scroll ── */

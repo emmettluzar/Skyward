@@ -2,17 +2,20 @@
 
 import type { ConditionsPoint, HourCondition } from "@/lib/types/conditions";
 
-/** Map a twilight state to a colored bar height (prd.md §5 Row 1). */
+/**
+ * Map a twilight state to a colored bar (prd.md §5 Row 1). Colors are themeable
+ * tokens so red-light mode can collapse them to monochrome red (no blue/white).
+ */
 function twilightLevel(h: HourCondition): string {
   switch (h.twilight) {
     case "daylight":
-      return "bg-sky-300/20";
+      return "bg-(--twilight-day)";
     case "civil":
-      return "bg-sky-300/40";
+      return "bg-(--twilight-civil)";
     case "nautical":
-      return "bg-indigo-300/60";
+      return "bg-(--twilight-nautical)";
     case "astro":
-      return "bg-indigo-400/80";
+      return "bg-(--twilight-astro)";
     default:
       return "bg-secondary";
   }
@@ -89,8 +92,12 @@ export function HourRibbon({
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Tonight · {hourLabel(point.hours[0]?.timeMs ?? Date.now())} –{" "}
-          {hourLabel(point.hours[point.hours.length - 1]?.timeMs ?? Date.now())}
+          Tonight · {hourLabel(point.hours[0]?.timeMs ?? 0)} –{" "}
+          {hourLabel(
+            point.hours[point.hours.length - 1]?.timeMs ??
+              point.hours[0]?.timeMs ??
+              0,
+          )}
         </span>
         <span className="text-xs text-muted-foreground">
           {point.moonPhaseLabel} · {Math.round(point.moonIllumFrac * 100)}% lit
@@ -111,19 +118,19 @@ export function HourRibbon({
             >
               {h.cloudHighFrac !== null && (
                 <div
-                  className="absolute inset-x-0 top-0 bg-sky-200/40"
+                  className="absolute inset-x-0 top-0 bg-(--cloud-high)"
                   style={{ height: `${h.cloudHighFrac * 100}%` }}
                 />
               )}
               {h.cloudMidFrac !== null && (
                 <div
-                  className="absolute inset-x-0 top-0 bg-slate-300/50"
+                  className="absolute inset-x-0 top-0 bg-(--cloud-mid)"
                   style={{ height: `${((h.cloudLowFrac ?? 0) + h.cloudMidFrac) * 100}%` }}
                 />
               )}
               {h.cloudLowFrac !== null && (
                 <div
-                  className="absolute inset-x-0 bottom-0 bg-slate-500/70"
+                  className="absolute inset-x-0 bottom-0 bg-(--cloud-low)"
                   style={{ height: `${h.cloudLowFrac * 100}%` }}
                 />
               )}
@@ -138,10 +145,9 @@ export function HourRibbon({
             <div className="flex h-1.5 items-center justify-center">
               {h.goAbility !== null ? (
                 <span
-                  className="block size-1.5 rounded-full"
+                  className="block size-1.5 rounded-full bg-(--goability-dot)"
                   style={{
                     opacity: 0.25 + 0.75 * h.goAbility,
-                    backgroundColor: `hsl(${Math.round(h.goAbility * 140)} 90% 60%)`,
                   }}
                 />
               ) : (

@@ -11,6 +11,7 @@ import {
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { CandidateSpot, GeoJsonFeatureCollection } from "@/lib/types/places";
+import { useTheme } from "@/components/theme-provider";
 
 /**
  * OpenFreeMap dark style URL.
@@ -24,6 +25,25 @@ const OPENFREE_MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
  */
 const DEFAULT_CENTER: [number, number] = [-98.6, 39.8];
 const DEFAULT_ZOOM = 4;
+
+/** Marker + isochrone colors. Dark theme uses Skyward's blue; red theme is
+  * monochrome red so no white/blue pixels leak into the field theme. */
+const COLORS = {
+  dark: {
+    markerPrimary: "oklch(0.65 0.18 250)",
+    markerSecondary: "oklch(0.45 0.12 250)",
+    markerBorder: "#ffffff",
+    markerText: "#ffffff",
+    isochroneFill: "oklch(0.65 0.18 250)",
+  },
+  red: {
+    markerPrimary: "oklch(0.5 0.14 25)",
+    markerSecondary: "oklch(0.38 0.11 25)",
+    markerBorder: "oklch(0.06 0 0)",
+    markerText: "oklch(0.08 0 0)",
+    isochroneFill: "oklch(0.45 0.13 25)",
+  },
+} as const;
 
 export interface MapViewProps {
   /** Called when the user's location is first obtained (or fallback). */
@@ -52,6 +72,9 @@ const MapView: FC<MapViewProps> = ({
   const mapRef = useRef<Map | null>(null);
   const locationCalledRef = useRef(false);
   const markersRef = useRef<Marker[]>([]);
+  const { theme } = useTheme();
+  const isRed = theme === "red";
+  const palette = COLORS[isRed ? "red" : "dark"];
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -144,22 +167,25 @@ const MapView: FC<MapViewProps> = ({
     if (!spots || spots.length === 0) return;
 
     for (const spot of spots) {
+      const isPrimary = spot.rank === 1;
+      const fill = isPrimary ? palette.markerPrimary : palette.markerSecondary;
+
       const el = document.createElement("div");
       el.className = "candidate-marker";
       el.setAttribute("aria-label", `${spot.rank}. ${spot.name}`);
       el.innerHTML = [
         `<div style="`,
-        `  width:${spot.rank === 1 ? 36 : 28}px;`,
-        `  height:${spot.rank === 1 ? 36 : 28}px;`,
+        `  width:${isPrimary ? 36 : 28}px;`,
+        `  height:${isPrimary ? 36 : 28}px;`,
         `  border-radius:50%;`,
-        `  background:${spot.rank === 1 ? "oklch(0.65 0.18 250)" : "oklch(0.45 0.12 250)"};`,
-        `  border:2px solid #fff;`,
+        `  background:${fill};`,
+        `  border:2px solid ${palette.markerBorder};`,
         `  display:flex;`,
         `  align-items:center;`,
         `  justify-content:center;`,
         `  font-weight:700;`,
-        `  font-size:${spot.rank === 1 ? 14 : 11}px;`,
-        `  color:#fff;`,
+        `  font-size:${isPrimary ? 14 : 11}px;`,
+        `  color:${palette.markerText};`,
         `  box-shadow:0 2px 6px rgba(0,0,0,0.5);`,
         `  cursor:pointer;`,
         `">${spot.rank}</div>`,
@@ -186,7 +212,7 @@ const MapView: FC<MapViewProps> = ({
 
       markersRef.current.push(marker);
     }
-  }, [spots, onSpotSelect]);
+  }, [spots, onSpotSelect, palette]);
 
   // Draw isochrone polygon.
   useEffect(() => {
@@ -199,6 +225,7 @@ const MapView: FC<MapViewProps> = ({
     // Remove previous isochrone layers if they exist.
     try {
       if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getLayer(`${layerId}-outline`)) map.removeLayer(`${layerId}-outline`);
       if (map.getSource(sourceId)) map.removeSource(sourceId);
     } catch {
       // Layer/source may not exist yet.
@@ -220,7 +247,7 @@ const MapView: FC<MapViewProps> = ({
       type: "fill",
       source: sourceId,
       paint: {
-        "fill-color": "oklch(0.65 0.18 250)",
+        "fill-color": palette.isochroneFill,
         "fill-opacity": 0.15,
       },
     });
@@ -230,12 +257,12 @@ const MapView: FC<MapViewProps> = ({
       type: "line",
       source: sourceId,
       paint: {
-        "line-color": "oklch(0.65 0.18 250)",
+        "line-color": palette.isochroneFill,
         "line-opacity": 0.6,
         "line-width": 2,
       },
     });
-  }, [isochrone]);
+  }, [isochrone, palette]);
 
   return (
     <div
@@ -243,7 +270,12 @@ const MapView: FC<MapViewProps> = ({
       className={`map-container ${className ?? ""}`}
       aria-label="Sky map with light pollution overlay"
       role="application"
-    />
+    >
+      {/* Red-light overlay: a multiply blend grades the WebGL canvas toward
+          monochrome red without a CSS `filter` (which would kill the GL context).
+          See globals.css `[data-theme="red"] .map-red-overlay`. */}
+      {isRed && <div className="map-red-overlay" aria-hidden="true" />}
+    </div>
   );
 };
 

@@ -6,11 +6,17 @@ import type {
   VerdictResponse,
 } from "@/lib/types/verdict";
 
+/**
+ * Verdict chip colors as themeable CSS tokens (defined in globals.css) rather
+ * than hardcoded Tailwind hues. The red-light theme overrides these tokens to
+ * pure monochrome red — hardcoded emerald/amber/rose/sky would leak blue/green
+ * pixels into a dark-adaptation-safe field theme (.clinerules §5).
+ */
 const VERDICT_STYLES: Record<ApiVerdict, string> = {
-  GO: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  MAYBE: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  "STAY HOME": "bg-rose-500/15 text-rose-300 border-rose-500/30",
-  UNKNOWN: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  GO: "text-(--verdict-go-text) border-(--verdict-go-border) bg-(--verdict-go-bg)",
+  MAYBE: "text-(--verdict-maybe-text) border-(--verdict-maybe-border) bg-(--verdict-maybe-bg)",
+  "STAY HOME": "text-(--verdict-stay-text) border-(--verdict-stay-border) bg-(--verdict-stay-bg)",
+  UNKNOWN: "text-(--verdict-unknown-text) border-(--verdict-unknown-border) bg-(--verdict-unknown-bg)",
 };
 
 export function VerdictCard({
@@ -53,7 +59,7 @@ export function VerdictCard({
           </div>
           <div>
             <p className="text-lg font-semibold leading-tight">
-              Couldn't reach the sky
+              Could not reach the sky
             </p>
             <p className="text-sm text-muted-foreground">
               Check your connection and try again

@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# raster/geo binaries — never commit (data artifacts live in R2, manifest.json only)
+#   (.clinerules §0.2)
+*.tif
+*.tiff
+*.pmtiles
+*.mbtiles
+*.zip
+*.gz
+data/raw/

@@ -5,10 +5,10 @@
  * normalized by lib/upstream/overpass), pick the best legal, parkable spot
  * within the snap radius for each cell.
  *
- * This module is PURE: no I/O, no Date.now(). It is the second (local) line of
- * defence against illegal spots — the Overpass query already drops
- * `access=private|no|customers` etc., but any defensive caller can re-verify
- * here by fingerprinting those tags via `isPrivateTarget`.
+ * This module is PURE: no I/O, no Date.now(). Legality against illegal spots is
+ * enforced upstream: the Overpass query drops `access=private|no|customers`
+ * etc., and `normalizeElement` hard-excludes any element that slipped through
+ * (e.g. inherited access, military/aeroway/quarry, locked gates).
  *
  * Snap score (prd.md §6):
  *   snap = 0.45·openness + 0.25·(1 - Δdarkness) + 0.20·parking_quality
@@ -26,20 +26,6 @@ export interface ScoredTarget {
   target: SnapTarget;
   distKmFromCell: number;
   snapScore: number;
-}
-
-/**
- * Whether a target is on private land. THIS is the §6 hard line that must never
- * be crossed when recommending a spot. The strict OSM `access` values map to
- * "behind a locked gate / on private land".
- */
-export function isPrivateTarget(target: SnapTarget): boolean {
-  // accessConfidence carries "verify-access"/"likely-public"/"verified-public",
-  // but the definitive private signal lives in the OSM access tag. Since that
-  // raw tag is not embedded in SnapTarget, we rely on the Overpass normalizer
-  // (which already hard-excludes private|no|customers|forestry). This helper
-  // exists so callers can cheaply assert the invariant and so tests can lock it.
-  return false;
 }
 
 /**
@@ -84,8 +70,8 @@ export function scoreTargetsForCell(
   const out: ScoredTarget[] = [];
 
   for (const target of targets) {
-    if (isPrivateTarget(target)) continue;
-
+    // Legality is already guaranteed by the Overpass query + normalizeElement
+    // (hard-excludes private|no|customers|military|aeroway|quarry|locked gates).
     const distKmFromCell = haversineKm(cell, target);
 
     if (distKmFromCell > radiusKm) continue;

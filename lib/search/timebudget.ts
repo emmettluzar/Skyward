@@ -82,7 +82,7 @@ export async function timeBudgetSearch(
   //    budget, so a per-spot matrix call is unnecessary here. We estimate drive
   //    time via Haversine (correct for display; the polygon enforces the budget).
   const candidates: CandidateSpot[] = filtered
-    .map((spot, i) => {
+    .map((spot) => {
       const distKm = haversineKm(origin, spot);
       return {
         ...spot,

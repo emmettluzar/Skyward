@@ -82,7 +82,7 @@ export default function AboutPage() {
       <h1 className="text-2xl font-semibold tracking-tight">About Skyward</h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
         Skyward finds where to drive tonight for the best stargazing, and tells
-        you whether it's worth going at all. Every value shown in the app
+        you whether it&apos;s worth going at all. Every value shown in the app
         carries its provenance — the source, vintage, and (for forecasts) a
         confidence level.
       </p>
