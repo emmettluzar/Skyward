@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useRef, type FC } from "react";
-import { Map, NavigationControl, GeolocateControl } from "maplibre-gl";
+import {
+  Map,
+  NavigationControl,
+  GeolocateControl,
+  Marker,
+  Popup,
+  type LngLatLike,
+} from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type { CandidateSpot, GeoJsonFeatureCollection } from "@/lib/types/places";
 
 /**
  * OpenFreeMap dark style URL.
@@ -22,12 +30,28 @@ export interface MapViewProps {
   onLocationReady?: (lat: number, lng: number) => void;
   /** Optional className for the container div. */
   className?: string;
+  /** Candidate spots to display as markers. */
+  spots?: CandidateSpot[];
+  /** Isochrone GeoJSON to draw on the map. */
+  isochrone?: GeoJsonFeatureCollection | null;
+  /** Optional map center override (e.g. from a search result). */
+  center?: [number, number];
+  /** Called when a marker is clicked, with the spot for the detail pane. */
+  onSpotSelect?: (spot: CandidateSpot) => void;
 }
 
-const MapView: FC<MapViewProps> = ({ onLocationReady, className }) => {
+const MapView: FC<MapViewProps> = ({
+  onLocationReady,
+  className,
+  spots,
+  isochrone,
+  center,
+  onSpotSelect,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const locationCalledRef = useRef(false);
+  const markersRef = useRef<Marker[]>([]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -35,7 +59,7 @@ const MapView: FC<MapViewProps> = ({ onLocationReady, className }) => {
     const map = new Map({
       container: containerRef.current,
       style: OPENFREE_MAP_STYLE,
-      center: DEFAULT_CENTER,
+      center: center ?? DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     });
 
@@ -57,7 +81,6 @@ const MapView: FC<MapViewProps> = ({ onLocationReady, className }) => {
     map.addControl(geolocate, "bottom-right");
 
     // When user location is obtained, center map and notify parent
-    // v5: the "geolocate" event passes a GeolocationPosition as the event data
     const onGeolocate = (e: unknown) => {
       const pos = e as GeolocationPosition;
       const { latitude, longitude } = pos.coords;
@@ -93,14 +116,126 @@ const MapView: FC<MapViewProps> = ({ onLocationReady, className }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Handle resize when parent layout changes
   useEffect(() => {
-    // Handle resize when parent layout changes
     const map = mapRef.current;
     if (!map) return;
     const handler = () => map.resize();
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
+
+  // Recenter when `center` prop changes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !center) return;
+    map.flyTo({ center: center as LngLatLike, zoom: 10 });
+  }, [center]);
+
+  // Place candidate markers.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear previous markers.
+    for (const m of markersRef.current) m.remove();
+    markersRef.current = [];
+
+    if (!spots || spots.length === 0) return;
+
+    for (const spot of spots) {
+      const el = document.createElement("div");
+      el.className = "candidate-marker";
+      el.setAttribute("aria-label", `${spot.rank}. ${spot.name}`);
+      el.innerHTML = [
+        `<div style="`,
+        `  width:${spot.rank === 1 ? 36 : 28}px;`,
+        `  height:${spot.rank === 1 ? 36 : 28}px;`,
+        `  border-radius:50%;`,
+        `  background:${spot.rank === 1 ? "oklch(0.65 0.18 250)" : "oklch(0.45 0.12 250)"};`,
+        `  border:2px solid #fff;`,
+        `  display:flex;`,
+        `  align-items:center;`,
+        `  justify-content:center;`,
+        `  font-weight:700;`,
+        `  font-size:${spot.rank === 1 ? 14 : 11}px;`,
+        `  color:#fff;`,
+        `  box-shadow:0 2px 6px rgba(0,0,0,0.5);`,
+        `  cursor:pointer;`,
+        `">${spot.rank}</div>`,
+      ].join("");
+
+      el.onclick = () => onSpotSelect?.(spot);
+
+      const marker = new Marker({ element: el })
+        .setLngLat([spot.lon, spot.lat])
+        .setPopup(
+          new Popup({ offset: 25 }).setHTML(
+            [
+              `<strong>${spot.name}</strong>`,
+              `<br/>`,
+              `<small>≈ ${spot.driveTimeMin} min drive · ${spot.accessConfidence}</small>`,
+              `<br/>`,
+              `<a href="${spot.deepLinks.googleMaps}" target="_blank" rel="noopener">`,
+              `Directions (Google Maps)`,
+              `</a>`,
+            ].join(""),
+          ),
+        )
+        .addTo(map);
+
+      markersRef.current.push(marker);
+    }
+  }, [spots, onSpotSelect]);
+
+  // Draw isochrone polygon.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isochrone) return;
+
+    const sourceId = "isochrone-source";
+    const layerId = "isochrone-layer";
+
+    // Remove previous isochrone layers if they exist.
+    try {
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
+    } catch {
+      // Layer/source may not exist yet.
+    }
+
+    // Only draw polygon features; skip points.
+    const polygonFeatures = isochrone.features.filter(
+      (f) => f.geometry.type === "Polygon",
+    );
+    if (polygonFeatures.length === 0) return;
+
+    map.addSource(sourceId, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: polygonFeatures },
+    });
+
+    map.addLayer({
+      id: layerId,
+      type: "fill",
+      source: sourceId,
+      paint: {
+        "fill-color": "oklch(0.65 0.18 250)",
+        "fill-opacity": 0.15,
+      },
+    });
+
+    map.addLayer({
+      id: `${layerId}-outline`,
+      type: "line",
+      source: sourceId,
+      paint: {
+        "line-color": "oklch(0.65 0.18 250)",
+        "line-opacity": 0.6,
+        "line-width": 2,
+      },
+    });
+  }, [isochrone]);
 
   return (
     <div

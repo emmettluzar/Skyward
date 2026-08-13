@@ -99,6 +99,10 @@ export interface FetchJsonInput<S extends ZodSchema> {
   service: string;
   /** Optional extra headers (e.g. Valhalla X-Client-Id). */
   headers?: Record<string, string>;
+  /** HTTP method; defaults to GET. Overpass uses POST (form-encoded body). */
+  method?: "GET" | "POST";
+  /** Optional raw string body for POST requests (e.g. Overpass `data=...`). */
+  body?: string;
 }
 
 /**
@@ -124,6 +128,8 @@ export async function fetchJson<S extends ZodSchema>(
 
     try {
       const res = await fetch(input.url, {
+        method: input.method ?? "GET",
+        body: input.body,
         headers: {
           Accept: "application/json",
           ...input.headers,
