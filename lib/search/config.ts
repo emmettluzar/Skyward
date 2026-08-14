@@ -58,6 +58,34 @@ export const SEARCH_CONFIG = {
     /** Cap on destination count per matrix call (keeps the request sane). */
     maxSources: 50,
   },
+
+  /**
+   * "Best within reach" composite score weights (see lib/search/rank.ts). The
+   * user asks "which is BEST within my drive time?", not "which is closest".
+   * We combine the signals we already model (§4/§6) into one 0–1 number:
+   *
+   *   score = w_open·openness + w_park·parking + w_access·access
+   *         + w_dark·S_dark + w_close·closeness
+   *
+   * Openness = OSM open-sky/greenery proxy; access = the §7 confidence label;
+   * S_dark = the canonical γ darkness factor (neutral 0.5 while the raster is
+   * unpublished); closeness normalizes against `maxDriveTimeMin`.
+   */
+  best: {
+    opennessWeight: 0.3,
+    parkingWeight: 0.15,
+    accessWeight: 0.2,
+    darknessWeight: 0.25,
+    closenessWeight: 0.1,
+    /** Drive time (min) at which the closeness term saturates to 0. */
+    maxDriveTimeMin: 120,
+    /** Access confidence → 0..1 (prd.md §6 + .clinerules §7). */
+    accessScores: {
+      "verified-public": 1.0,
+      "likely-public": 0.8,
+      "verify-access": 0.5,
+    },
+  },
 } as const;
 
 export type SearchConfig = typeof SEARCH_CONFIG;

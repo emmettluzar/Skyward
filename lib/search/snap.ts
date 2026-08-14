@@ -125,6 +125,9 @@ export function snapCell(
     rawCellLon: cell.lon,
     distKmFromCell: best.distKmFromCell,
     snapScore: best.snapScore,
+    // Darkness is inherited from the raw cell (null while the raster is
+    // unpublished). We never fabricate a spot-level Bortle value.
+    sqmMpsas: cell.sqmMpsas,
     deepLinks: buildDeepLinks(t.lat, t.lon),
   };
 }

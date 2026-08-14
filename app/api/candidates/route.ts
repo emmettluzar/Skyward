@@ -1,14 +1,14 @@
 /**
  * POST /api/candidates
  *
- * Mode 1 Threshold Search (prd.md §3.1) + Mode 3 Time Budget (§3.3).
+ * Mode 1 Threshold Search (prd.md ยง3.1) + Mode 3 Time Budget (ยง3.3).
  *
  * Body (JSON):
  *   { lat, lon, mode: "threshold"|"timebudget", maxDriveTimeMin?, budgetMin? }
  *
  * Upside: a single search runs at most one Overpass call plus (threshold) one
  * Valhalla matrix call, or (timebudget) one Valhalla isochrone call. All
- * degradation is handled inside the search modules (.clinerules §4).
+ * degradation is handled inside the search modules (.clinerules ยง4).
  *
  * Coordinates are rounded to 3 dp before any outbound call (privacy + cache).
  */
@@ -31,6 +31,10 @@ const bodySchema = z.object({
   maxDriveTimeMin: z.number().positive().optional(),
   /** Required time budget for "timebudget" mode, minutes. */
   budgetMin: z.number().positive().optional(),
+  /** Minimum SQM (mag/arcsec²) — "Bortle N or darker". Optional. */
+  minSqm: z.number().positive().optional(),
+  /** Minimum open-sky/greenery proxy (0–1). Optional. */
+  minOpenness: z.number().min(0).max(1).optional(),
 });
 
 export async function POST(request: Request): Promise<Response> {
@@ -46,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
       const budgetMin = body.budgetMin ?? 45;
       const result = await timeBudgetSearch({ lat, lon, budgetMin, nowMs });
       // Return both candidates + isochrone in one payload so the map draws in a
-      // single fetch (performance target §8.4, ≤5s).
+      // single fetch (performance target ยง8.4, โ�ค5s).
       return Response.json(
         { candidates: result.candidates, isochrone: result.isochrone },
         { headers: cacheHeaders(86400) },
@@ -57,6 +61,8 @@ export async function POST(request: Request): Promise<Response> {
       lat,
       lon,
       maxDriveTimeMin: body.maxDriveTimeMin,
+      minSqm: body.minSqm,
+      minOpenness: body.minOpenness,
       nowMs,
     });
     return Response.json(candidates, { headers: cacheHeaders(3600) });
@@ -68,7 +74,7 @@ export async function POST(request: Request): Promise<Response> {
 function cacheHeaders(maxAgeSec: number): Record<string, string> {
   return {
     // The PRD assigns candidates 1h and isochrone 24h cache; quantized origins
-    // make this a cache-hit AND privacy measure (.clinerules §4).
+    // make this a cache-hit AND privacy measure (.clinerules ยง4).
     "Cache-Control": `public, max-age=${maxAgeSec}, stale-while-revalidate=${
       maxAgeSec / 2
     }`,

@@ -84,6 +84,12 @@ export interface SnappedSpot {
   distKmFromCell: number;
   /** prd.md §6 snap score, 0..1. */
   snapScore: number;
+  /**
+   * Modeled zenith SQM (mpsas) at the spot, or null while the Phase 0 darkness
+   * raster is unpublished. UI renders "≈ Bortle N" only when this is non-null;
+   * a null value is shown honestly as "darkness unknown" (never fabricated).
+   */
+  sqmMpsas: number | null;
   deepLinks: DeepLinks;
 }
 
@@ -97,6 +103,15 @@ export interface CandidateSpot extends SnappedSpot {
   distKmFromOrigin: number;
   /** 1-based ranking (1 = recommended). */
   rank: number;
+  /**
+   * Composite "best" score in [0, 1] — see lib/search/rank.ts. Used to explain
+   * why one spot ranks above another (greenery/open sky, parking, access,
+   * darkness, and how close it is). Threshold mode ranks by drive time; the
+   * score is still shown for transparency.
+   */
+  score: number;
+  /** Human-readable reasons for the "best" score, for the educational tooltip. */
+  scoreReasons: string[];
 }
 
 export type SearchMode = "threshold" | "timebudget";

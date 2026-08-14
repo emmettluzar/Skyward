@@ -18,6 +18,7 @@ import { sampleCandidateCells, filterCellsInPolygon } from "./sample";
 import { fetchIsochrone } from "@/lib/upstream/valhalla";
 import { fetchSnapTargetsForCells } from "@/lib/upstream/overpass";
 import { snapCells, dedupeSpots } from "./snap";
+import { rankByBest } from "./rank";
 import { haversineKm, estimatedDriveMinKm } from "@/lib/geo/distance";
 import type {
   CandidateSpot,
@@ -81,19 +82,23 @@ export async function timeBudgetSearch(
   // 5. Build ranked candidates; drive time is already constrained by the
   //    budget, so a per-spot matrix call is unnecessary here. We estimate drive
   //    time via Haversine (correct for display; the polygon enforces the budget).
-  const candidates: CandidateSpot[] = filtered
-    .map((spot) => {
+  // A per-spot matrix is unnecessary here: the isochrone already enforces the
+  // drive-time budget, so we estimate drive time for display only and rank by
+  // "best" (the composite score), not simply by which field is nearest.
+  const candidates: CandidateSpot[] = rankByBest(
+    filtered.map((spot) => {
       const distKm = haversineKm(origin, spot);
       return {
         ...spot,
         driveTimeMin: Math.round(estimatedDriveMinKm(distKm)),
         driveTimeEstimated: true,
         distKmFromOrigin: Math.round(distKm * 10) / 10,
+        score: 0,
+        scoreReasons: [],
         rank: 1,
       };
-    })
-    .sort((a, b) => a.driveTimeMin - b.driveTimeMin)
-    .slice(0, SEARCH_CONFIG.timeBudget.returnCount);
+    }),
+  ).slice(0, SEARCH_CONFIG.timeBudget.returnCount);
 
   candidates.forEach((c, i) => {
     c.rank = i + 1;

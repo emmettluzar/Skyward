@@ -117,10 +117,13 @@ function makeSpot(rank: number): CandidateSpot {
     rawCellLon: -74.12,
     distKmFromCell: 0.4,
     snapScore: 0.71,
+    sqmMpsas: null,
     deepLinks,
     driveTimeMin: 40 + rank * 5,
     driveTimeEstimated: false,
     distKmFromOrigin: 48 + rank * 4,
+    score: 0.72 - rank * 0.05,
+    scoreReasons: ["open sky / greenery 85%", "public access 80%"],
     rank,
   };
 }

@@ -58,3 +58,8 @@ export function estimatedDriveMinKm(distKm: number): number {
 export function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
+
+/** Kilometres → miles. Used for display only; all internals stay in km. */
+export function kmToMiles(km: number): number {
+  return km / 1.609344;
+}

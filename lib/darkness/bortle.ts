@@ -58,3 +58,13 @@ export function bortleLabel(sqmMpsas: number): string {
   const band = BORTLE_BANDS[b - 1];
   return band.label;
 }
+
+/**
+ * The minimum modeled zenith SQM needed to qualify as "Bortle N or darker"
+ * (i.e. Bortle ≤ N). For example a user choosing "≈ Bortle 4 or darker" needs
+ * SQM ≥ 20.49 mpsas. Used for the threshold search darkness filter.
+ */
+export function minSqmForBortle(bortle: number): number {
+  const band = BORTLE_BANDS[Math.min(9, Math.max(1, Math.round(bortle))) - 1];
+  return band.minSqm;
+}

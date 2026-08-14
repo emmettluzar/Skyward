@@ -21,6 +21,7 @@ import { sampleCandidateCells } from "./sample";
 import { fetchSnapTargetsForCells } from "@/lib/upstream/overpass";
 import { fetchMatrix } from "@/lib/upstream/valhalla";
 import { snapCells, dedupeSpots } from "./snap";
+import { bestScore } from "./rank";
 import { haversineKm } from "@/lib/geo/distance";
 import { buildDeepLinks } from "@/lib/geo/deep-links";
 import type {
@@ -34,6 +35,16 @@ export interface ThresholdSearchInput {
   lon: number;
   /** Optional hard max drive time, minutes. Omit for "nearest dark enough". */
   maxDriveTimeMin?: number;
+  /**
+   * Minimum modeled zenith SQM (mpsas) the user requires — "Bortle N or darker".
+   * When null/omitted, no darkness constraint is applied.
+   */
+  minSqm?: number;
+  /**
+   * Minimum open-sky/greenery proxy (0–1) the user requires. When omitted, no
+   * greenery constraint is applied.
+   */
+  minOpenness?: number;
   nowMs: number;
 }
 
@@ -75,7 +86,7 @@ export async function thresholdSearch(
 
   const minutes = matrix.minutes[0] ?? [];
 
-  // 5. Build CandidateSpot list and sort by drive time.
+  // 5. Build CandidateSpot list (with the "best" score) and sort by drive time.
   const candidates: CandidateSpot[] = spots
     .map((spot, i) => {
       const driveTimeMin = Number.isFinite(minutes[i])
@@ -88,24 +99,53 @@ export async function thresholdSearch(
           );
 
       const driveTimeEstimated = matrix.estimated || !Number.isFinite(minutes[i]);
+      const { score, reasons: scoreReasons } = bestScore({
+        openness: spot.openness,
+        parkingQuality: spot.parkingQuality,
+        accessConfidence: spot.accessConfidence,
+        sqmMpsas: spot.sqmMpsas,
+        driveTimeMin,
+      });
 
       return {
         ...spot,
         driveTimeMin,
         driveTimeEstimated,
         distKmFromOrigin: Math.round(haversineKm(origin, spot) * 10) / 10,
+        score,
+        scoreReasons,
         rank: 1,
       };
     })
-    .filter((c) => input.maxDriveTimeMin === undefined || c.driveTimeMin <= input.maxDriveTimeMin)
-    .sort((a, b) => a.driveTimeMin - b.driveTimeMin);
+    .filter((c) => input.maxDriveTimeMin === undefined || c.driveTimeMin <= input.maxDriveTimeMin);
 
-  // Assign 1-based ranks after sorting.
-  candidates.forEach((c, i) => {
+  // Apply the darkness/greenery filters. These are "hard" only when the value is
+  // KNOWN; a null SQM (raster unpublished) must never be silently excluded —
+  // that would produce the "no locations found" dead-end the product forbids.
+  // If nothing passes the strict filters, we fall back to the full list so the
+  // user always gets the best thing that exists, clearly labeled.
+  const qualifying = candidates.filter(
+    (c) =>
+      (input.minSqm === undefined || c.sqmMpsas === null || c.sqmMpsas >= input.minSqm) &&
+      (input.minOpenness === undefined || c.openness >= input.minOpenness),
+  );
+
+  const ranked = (qualifying.length > 0 ? qualifying : candidates).sort(
+    (a, b) => a.driveTimeMin - b.driveTimeMin,
+  );
+
+  // When the darkness model is pending but the user asked for a threshold, be
+  // honest about what we could and couldn't verify.
+  const darknessUnverified = input.minSqm !== undefined && ranked.some((c) => c.sqmMpsas === null);
+  const filteredOutCount = candidates.length - qualifying.length;
+
+  ranked.forEach((c, i) => {
     c.rank = i + 1;
   });
 
-  const top = candidates.slice(0, SEARCH_CONFIG.threshold.returnCount);
+  const top = ranked.slice(0, SEARCH_CONFIG.threshold.returnCount);
+  if (filteredOutCount > 0) partial.push("some spots below your darkness/greenery filters were hidden");
+  if (darknessUnverified) partial.push("darkness");
 
   return {
     origin: { lat: input.lat, lon: input.lon },
@@ -136,6 +176,7 @@ function buildRawFallback(cells: readonly RawDarkCell[]) {
     rawCellLon: cell.lon,
     distKmFromCell: 0,
     snapScore: 0,
+    sqmMpsas: cell.sqmMpsas,
     deepLinks: buildDeepLinks(cell.lat, cell.lon),
   }));
 }

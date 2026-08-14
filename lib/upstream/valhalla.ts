@@ -198,8 +198,13 @@ export async function fetchMatrix(
       body,
     });
 
+    // Valhalla /sources_to_targets returns travel time in SECONDS; everything
+    // downstream expects minutes. Convert once here at the boundary so a real
+    // 15-minute drive (900 s) never renders as "900 min" (15 h).
     return {
-      minutes: raw.sources_to_targets.map((row) => row.map((m) => m ?? Infinity)),
+      minutes: raw.sources_to_targets.map((row) =>
+        row.map((m) => (m === null ? Infinity : Math.round(m / 60))),
+      ),
       estimated: false,
     };
   } catch (err) {
