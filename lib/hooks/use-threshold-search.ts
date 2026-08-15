@@ -14,8 +14,10 @@ interface Params {
   maxDriveTimeMin?: number;
   /** Minimum SQM (mag/arcsec²) — "Bortle N or darker". Optional. */
   minSqm?: number;
-  /** Minimum open-sky/greenery proxy (0–1). Optional. */
+  /** Minimum open-sky horizon openness proxy (0–1). Optional. */
   minOpenness?: number;
+  /** Minimum greenery/natural beauty proxy (0–1). Optional. */
+  minGreenery?: number;
   enabled?: boolean;
 }
 
@@ -32,10 +34,19 @@ export function useThresholdSearch({
   maxDriveTimeMin,
   minSqm,
   minOpenness,
+  minGreenery,
   enabled = true,
 }: Params) {
   return useQuery<CandidatesResponse>({
-    queryKey: ["threshold", r3(lat), r3(lon), maxDriveTimeMin ?? "unbounded", minSqm ?? "any", minOpenness ?? "any"],
+    queryKey: [
+      "threshold",
+      r3(lat),
+      r3(lon),
+      maxDriveTimeMin ?? "unbounded",
+      minSqm ?? "any",
+      minOpenness ?? "any",
+      minGreenery ?? "any",
+    ],
     queryFn: async () => {
       const res = await fetch("/api/candidates", {
         method: "POST",
@@ -47,6 +58,7 @@ export function useThresholdSearch({
           maxDriveTimeMin,
           minSqm,
           minOpenness,
+          minGreenery,
         }),
       });
       if (!res.ok) throw new Error("threshold search failed");

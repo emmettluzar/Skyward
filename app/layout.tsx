@@ -39,8 +39,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      {/* Dark is the default theme (defined on :root). .light or
-          [data-theme="red"] on <html> override it. */}
+      {/* Dark is the default theme (defined on :root). */}
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <Providers>{children}</Providers>
       </body>

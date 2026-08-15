@@ -121,7 +121,7 @@ export default function AboutPage() {
         credibility requirement, not a style preference.
       </p>
 
-      <h2 className="mt-8 text-lg font-semibold">Methodology</h2>
+      <h2 className="mt-8 text-lg font-semibold">Methodology & Spot Scoring</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
         The scoring engine multiplies six factors — darkness, cloud cover,
         atmospheric transparency, moon interference, horizon openness, and
@@ -130,6 +130,9 @@ export default function AboutPage() {
         fatigue from the marginal quality gain over staying home. Every
         coefficient is documented in <code>lib/scoring/config.ts</code> and
         traceable to the product spec (<code>prd.md</code> §4).
+      </p>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+        <strong>Openness vs. Greenery:</strong> Openness quantifies unobstructed 360° sky visibility to ensure objects low on the horizon (like the galactic center) aren't blocked by hills or trees. Greenery prioritizes natural settings, public parks, meadows, and nature reserves over paved asphalt parking lots.
       </p>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         The darkness model (Phase 0 pipeline) convolves VIIRS upward radiance

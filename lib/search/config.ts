@@ -14,14 +14,15 @@ export const SEARCH_CONFIG = {
     radiusKm: 2.5,
 
     /**
-     * prd.md §6 snap score weights:
-     *   snap = 0.45·openness + 0.25·(1 - Δdarkness) + 0.20·parking_quality
+     * Snap score weights:
+     *   snap = 0.30·openness + 0.20·greenery + 0.25·(1 - Δdarkness) + 0.15·parking_quality
      *        + 0.10·(1 - dist/radius)
      */
-    opennessWeight: 0.45,
+    opennessWeight: 0.30,
+    greeneryWeight: 0.20,
     darknessWeight: 0.25,
-    parkingWeight: 0.2,
-    distanceWeight: 0.1,
+    parkingWeight: 0.15,
+    distanceWeight: 0.10,
 
     /**
      * Δdarkness is normalized against this maximum SQM penalty. A spot at the
@@ -64,19 +65,16 @@ export const SEARCH_CONFIG = {
    * user asks "which is BEST within my drive time?", not "which is closest".
    * We combine the signals we already model (§4/§6) into one 0–1 number:
    *
-   *   score = w_open·openness + w_park·parking + w_access·access
+   *   score = w_open·openness + w_green·greenery + w_park·parking + w_access·access
    *         + w_dark·S_dark + w_close·closeness
-   *
-   * Openness = OSM open-sky/greenery proxy; access = the §7 confidence label;
-   * S_dark = the canonical γ darkness factor (neutral 0.5 while the raster is
-   * unpublished); closeness normalizes against `maxDriveTimeMin`.
    */
   best: {
-    opennessWeight: 0.3,
+    opennessWeight: 0.25,
+    greeneryWeight: 0.15,
     parkingWeight: 0.15,
-    accessWeight: 0.2,
-    darknessWeight: 0.25,
-    closenessWeight: 0.1,
+    accessWeight: 0.15,
+    darknessWeight: 0.20,
+    closenessWeight: 0.10,
     /** Drive time (min) at which the closeness term saturates to 0. */
     maxDriveTimeMin: 120,
     /** Access confidence → 0..1 (prd.md §6 + .clinerules §7). */

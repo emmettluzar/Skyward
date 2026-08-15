@@ -1,7 +1,9 @@
 "use client";
 
-import { Loader2, Timer, TriangleAlert } from "lucide-react";
+import { Loader2, Timer, TriangleAlert, Compass } from "lucide-react";
 import type { CandidateSpot } from "@/lib/types/places";
+import { kmToMiles } from "@/lib/geo/distance";
+import { bortleFromSqm } from "@/lib/darkness/bortle";
 
 /** Human label for access confidence (.clinerules §7). */
 const ACCESS_LABELS: Record<CandidateSpot["accessConfidence"], string> = {
@@ -12,8 +14,7 @@ const ACCESS_LABELS: Record<CandidateSpot["accessConfidence"], string> = {
 
 /**
  * Mode 3 "Time Budget" results panel. Lists the ranked spots with a well-formed
- * Google Maps directions deep link and an honest access-confidence label, per
- * .clinerules §7 and the Playwright smoke path (open a site → directions link).
+ * Google Maps directions deep link, Bortle + SQM units, and an honest access-confidence label.
  */
 export function TimeBudgetPanel({
   spots,
@@ -85,49 +86,64 @@ export function TimeBudgetPanel({
       data-testid="timebudget-results"
       aria-label="Reachable dark sky sites ranked by drive time"
     >
-      <div className="flex items-center gap-2 px-1 pb-2">
-        <Timer className="size-4 text-muted-foreground" />
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          Reachable sites
-        </span>
+      <div className="flex items-center justify-between px-1 pb-2">
+        <div className="flex items-center gap-1.5">
+          <Compass className="size-4 text-primary" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Reachable Dark Sky Sites
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground">{spots.length} sites</span>
       </div>
       <ul className="space-y-2">
-        {spots.map((spot) => (
-          <li key={spot.osmId}>
-            <button
-              type="button"
-              onClick={() => onSpotSelect?.(spot)}
-              className="w-full rounded-xl border border-border/40 bg-secondary/30 px-3 py-2 text-left transition-colors hover:bg-secondary"
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-semibold">
-                  <span className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">
-                    {spot.rank}
+        {spots.map((spot) => {
+          const bortle = spot.sqmMpsas !== null ? bortleFromSqm(spot.sqmMpsas) : 4;
+
+          return (
+            <li key={spot.osmId}>
+              <button
+                type="button"
+                onClick={() => onSpotSelect?.(spot)}
+                className="w-full rounded-xl border border-border/40 bg-secondary/30 px-3 py-2 text-left transition-colors hover:bg-secondary"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm font-semibold">
+                    <span className="mr-1.5 inline-flex size-5 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">
+                      {spot.rank}
+                    </span>
+                    {spot.name}
                   </span>
-                  {spot.name}
-                </span>
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  {spot.driveTimeEstimated ? "~" : ""}
-                  {spot.driveTimeMin} min
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                <span>{ACCESS_LABELS[spot.accessConfidence]}</span>
-                <span>{spot.distKmFromOrigin.toFixed(1)} km</span>
-                <a
-                  href={spot.deepLinks.googleMaps}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary underline-offset-2 hover:underline"
-                  data-testid="directions-link"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Directions
-                </a>
-              </div>
-            </button>
-          </li>
-        ))}
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {spot.driveTimeEstimated ? "~" : ""}
+                    {spot.driveTimeMin} min
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+                  <span className="rounded bg-indigo-950/60 px-1 py-0.5 font-semibold text-indigo-300 border border-indigo-400/30">
+                    ≈ Bortle {bortle}
+                  </span>
+                  {spot.sqmMpsas !== null && (
+                    <span className="font-mono text-foreground/80">
+                      {spot.sqmMpsas.toFixed(2)} mag/arcsec²
+                    </span>
+                  )}
+                  <span>{ACCESS_LABELS[spot.accessConfidence]}</span>
+                  <span>{kmToMiles(spot.distKmFromOrigin).toFixed(1)} mi</span>
+                  <a
+                    href={spot.deepLinks.googleMaps}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto text-primary font-medium underline-offset-2 hover:underline"
+                    data-testid="directions-link"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Directions
+                  </a>
+                </div>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

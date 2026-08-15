@@ -31,6 +31,7 @@ const ACCESS_SCORES: Record<AccessConfidence, number> =
 
 export interface BestScoreInput {
   openness: number;
+  greenery: number;
   parkingQuality: number;
   accessConfidence: AccessConfidence;
   sqmMpsas: number | null;
@@ -53,10 +54,11 @@ function clamp01(x: number): number {
  * Compute the "best" score for a candidate spot. Pure (no I/O, no Date.now()).
  */
 export function bestScore(input: BestScoreInput): BestScoreResult {
-  const { opennessWeight, parkingWeight, accessWeight, darknessWeight, closenessWeight, maxDriveTimeMin } =
+  const { opennessWeight, greeneryWeight, parkingWeight, accessWeight, darknessWeight, closenessWeight, maxDriveTimeMin } =
     SEARCH_CONFIG.best;
 
   const openTerm = clamp01(input.openness);
+  const greenTerm = clamp01(input.greenery);
   const parkTerm = clamp01(input.parkingQuality);
   const accessTerm = ACCESS_SCORES[input.accessConfidence];
 
@@ -70,7 +72,8 @@ export function bestScore(input: BestScoreInput): BestScoreResult {
   const closeTerm = clamp01(1 - input.driveTimeMin / maxDriveTimeMin);
 
   const terms: Array<{ label: string; value: number; weight: number }> = [
-    { label: "open sky / greenery", value: openTerm, weight: opennessWeight },
+    { label: "open sky", value: openTerm, weight: opennessWeight },
+    { label: "nature & greenery", value: greenTerm, weight: greeneryWeight },
     { label: "parking", value: parkTerm, weight: parkingWeight },
     { label: "public access", value: accessTerm, weight: accessWeight },
     { label: darkKnown ? "darkness" : "darkness unknown", value: darkTerm, weight: darknessWeight },
@@ -79,6 +82,7 @@ export function bestScore(input: BestScoreInput): BestScoreResult {
 
   const score =
     opennessWeight * openTerm +
+    greeneryWeight * greenTerm +
     parkingWeight * parkTerm +
     accessWeight * accessTerm +
     darknessWeight * darkTerm +
@@ -104,6 +108,7 @@ export function rankByBest(
   const scored = spots.map((spot) => {
     const { score, reasons } = bestScore({
       openness: spot.openness,
+      greenery: spot.greenery,
       parkingQuality: spot.parkingQuality,
       accessConfidence: spot.accessConfidence,
       sqmMpsas: spot.sqmMpsas,

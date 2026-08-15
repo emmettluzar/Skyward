@@ -24,13 +24,14 @@ function r6(n: number): string {
  * - geo: URI:    `geo:lat,lon` (browser/OS routing intent).
  */
 export function buildDeepLinks(lat: number, lon: number): DeepLinks {
-  const latS = r6(lat);
-  const lonS = r6(lon);
+  // Use exact coordinates with sufficient precision for navigation
+  const precisionLat = Math.round(lat * 1000000) / 1000000;
+  const precisionLon = Math.round(lon * 1000000) / 1000000;
 
   return {
-    googleMaps: `https://www.google.com/maps/dir/?api=1&destination=${latS},${lonS}`,
-    appleMaps: `https://maps.apple.com/?daddr=${latS},${lonS}`,
-    waze: `https://waze.com/ul?ll=${latS},${lonS}&navigate=yes`,
-    geo: `geo:${latS},${lonS}`,
+    googleMaps: `https://www.google.com/maps/dir/?api=1&destination=${precisionLat},${precisionLon}`,
+    appleMaps: `https://maps.apple.com/?daddr=${precisionLat},${precisionLon}`,
+    waze: `https://waze.com/ul?ll=${precisionLat},${precisionLon}&navigate=yes`,
+    geo: `geo:${precisionLat},${precisionLon}`,
   };
 }

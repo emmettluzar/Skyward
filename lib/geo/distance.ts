@@ -63,3 +63,30 @@ export function round3(n: number): number {
 export function kmToMiles(km: number): number {
   return km / 1.609344;
 }
+
+/**
+ * 8-point cardinal direction from origin to destination point.
+ */
+export function cardinalDirection(from: LatLon, to: LatLon): string {
+  const dLat = to.lat - from.lat;
+  const dLon = (to.lon - from.lon) * Math.cos(((from.lat + to.lat) / 2 * Math.PI) / 180);
+  const angle = (Math.atan2(dLon, dLat) * 180) / Math.PI;
+  const normalized = (angle + 360) % 360;
+  if (normalized >= 337.5 || normalized < 22.5) return "North";
+  if (normalized >= 22.5 && normalized < 67.5) return "Northeast";
+  if (normalized >= 67.5 && normalized < 112.5) return "East";
+  if (normalized >= 112.5 && normalized < 157.5) return "Southeast";
+  if (normalized >= 157.5 && normalized < 202.5) return "South";
+  if (normalized >= 202.5 && normalized < 247.5) return "Southwest";
+  if (normalized >= 247.5 && normalized < 292.5) return "West";
+  return "Northwest";
+}
+
+/**
+ * Approximate zenith SQM (mpsas) as a function of driving distance from an urban center.
+ * Smoothly scales from 18.00 (inner city) to ~21.95 (remote dark sky).
+ */
+export function estimateSqmFromDistance(distKm: number): number {
+  const sqm = 22.0 - 4.0 * Math.exp(-Math.max(0, distKm) / 38);
+  return Math.round(sqm * 100) / 100;
+}

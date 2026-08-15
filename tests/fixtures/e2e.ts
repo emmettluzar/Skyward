@@ -113,6 +113,7 @@ function makeSpot(rank: number): CandidateSpot {
     accessConfidence: "likely-public",
     parkingQuality: 0.9,
     openness: 0.85,
+    greenery: 0.8,
     rawCellLat: 41.12,
     rawCellLon: -74.12,
     distKmFromCell: 0.4,

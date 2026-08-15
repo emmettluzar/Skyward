@@ -244,22 +244,22 @@ function parkingQualityOf(el: OverpassElement): number {
   return 0.5;
 }
 
-/** Openness 0..1 — OSM-tag proxy for prd.md §6 "openness" (canopy/tree cover). */
+/** Openness 0..1 — horizon openness / unobstructed 360° sky view (viewpoints, peaks, shorelines). */
 function opennessOf(el: OverpassElement): number {
   const type = classifyType(el);
 
   switch (type) {
     case "viewpoint":
     case "peak":
-      return 1.0; // viewpoints/peaks are by definition open
+      return 1.0; // viewpoints/peaks are by definition open horizon
     case "water_access":
-      return 0.95; // open horizon over water
+      return 0.95; // open unobstructed horizon over water
     case "open_green":
       return 0.9;
     case "pull-off":
       return 0.8;
     case "parking":
-      return 0.6; // lots often have some tree cover
+      return 0.6;
     case "park":
       return tag(el, "leisure") === "nature_reserve" ? 0.7 : 0.75;
     case "cemetery_field":
@@ -269,6 +269,25 @@ function opennessOf(el: OverpassElement): number {
     default:
       return 0.65;
   }
+}
+
+/** Greenery 0..1 — proxy for natural beauty, parkland, vegetation, preserving scenic nature over asphalt parking lots. */
+function greeneryOf(el: OverpassElement): number {
+  const type = classifyType(el);
+  const leisure = tag(el, "leisure");
+  const natural = tag(el, "natural");
+  const landuse = tag(el, "landuse");
+
+  if (leisure === "nature_reserve" || natural === "wood" || natural === "scrub") return 1.0;
+  if (type === "park" || type === "open_green") return 0.95;
+  if (landuse === "meadow" || landuse === "grass" || natural === "grassland" || natural === "heath") return 0.9;
+  if (type === "peak" || type === "viewpoint") return 0.8;
+  if (type === "water_access") return 0.75;
+  if (type === "cemetery_field") return 0.6;
+  if (type === "pull-off") return 0.45;
+  if (type === "rest_area") return 0.35;
+  if (type === "parking") return 0.2; // asphalt parking lot has low greenery
+  return 0.4;
 }
 
 /** Prd §6 tier name used for the fallback label. */
@@ -371,6 +390,7 @@ export function normalizeElement(el: OverpassElement): SnapTarget | null {
     accessConfidence: accessConfidenceOf(el),
     parkingQuality: parkingQualityOf(el),
     openness: opennessOf(el),
+    greenery: greeneryOf(el),
   };
 }
 

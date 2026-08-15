@@ -39,21 +39,23 @@ export interface ScoredTarget {
 export function snapScore(
   input: {
     openness: number;
+    greenery: number;
     parkingQuality: number;
     distKmFromCell: number;
     darknessDeltaSqm: number;
   },
 ): number {
-  const { opennessWeight, darknessWeight, parkingWeight, distanceWeight, radiusKm, maxDarknessDeltaSqm } =
+  const { opennessWeight, greeneryWeight, darknessWeight, parkingWeight, distanceWeight, radiusKm, maxDarknessDeltaSqm } =
     SEARCH_CONFIG.snapping;
 
   const opennessTerm = opennessWeight * input.openness;
+  const greeneryTerm = greeneryWeight * input.greenery;
   const darknessTerm =
     darknessWeight * (1 - Math.min(1, input.darknessDeltaSqm / maxDarknessDeltaSqm));
   const parkingTerm = parkingWeight * input.parkingQuality;
   const distanceTerm = distanceWeight * (1 - Math.min(1, input.distKmFromCell / radiusKm));
 
-  return opennessTerm + darknessTerm + parkingTerm + distanceTerm;
+  return opennessTerm + greeneryTerm + darknessTerm + parkingTerm + distanceTerm;
 }
 
 /**
@@ -81,6 +83,7 @@ export function scoreTargetsForCell(
 
     const snapScoreValue = snapScore({
       openness: target.openness,
+      greenery: target.greenery,
       parkingQuality: target.parkingQuality,
       distKmFromCell,
       darknessDeltaSqm,
@@ -121,6 +124,7 @@ export function snapCell(
     accessConfidence: t.accessConfidence,
     parkingQuality: t.parkingQuality,
     openness: t.openness,
+    greenery: t.greenery,
     rawCellLat: cell.lat,
     rawCellLon: cell.lon,
     distKmFromCell: best.distKmFromCell,

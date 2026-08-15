@@ -63,8 +63,10 @@ export interface SnapTarget {
   accessConfidence: AccessConfidence;
   /** 0..1 — presence/legality of parking on or adjacent to the target. */
   parkingQuality: number;
-  /** 0..1 — openness estimate from OSM tags (canopy/landcover proxy). */
+  /** 0..1 — horizon openness / unobstructed sky view. */
   openness: number;
+  /** 0..1 — natural beauty, parkland, vegetation & nature proxy. */
+  greenery: number;
 }
 
 /** A raw cell snapped to the best legal, parkable spot within the radius. */
@@ -77,6 +79,7 @@ export interface SnappedSpot {
   accessConfidence: AccessConfidence;
   parkingQuality: number;
   openness: number;
+  greenery: number;
   /** The raw cell this spot was snapped to. */
   rawCellLat: number;
   rawCellLon: number;
@@ -105,9 +108,8 @@ export interface CandidateSpot extends SnappedSpot {
   rank: number;
   /**
    * Composite "best" score in [0, 1] — see lib/search/rank.ts. Used to explain
-   * why one spot ranks above another (greenery/open sky, parking, access,
-   * darkness, and how close it is). Threshold mode ranks by drive time; the
-   * score is still shown for transparency.
+   * why one spot ranks above another (open sky, greenery, parking, access,
+   * darkness, and how close it is).
    */
   score: number;
   /** Human-readable reasons for the "best" score, for the educational tooltip. */
@@ -125,9 +127,6 @@ export interface CandidatesResponse {
   estimated: boolean;
   generatedAtMs: number;
 }
-
-/* Minimal GeoJSON types (we deliberately avoid @turf for the upstream boundary;
- * .clinerules §1 allows it but Phase 1 needs only these two shapes). */
 
 export interface GeoJsonPoint {
   type: "Point";

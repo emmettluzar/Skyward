@@ -33,8 +33,10 @@ const bodySchema = z.object({
   budgetMin: z.number().positive().optional(),
   /** Minimum SQM (mag/arcsec²) — "Bortle N or darker". Optional. */
   minSqm: z.number().positive().optional(),
-  /** Minimum open-sky/greenery proxy (0–1). Optional. */
+  /** Minimum open-sky horizon openness proxy (0–1). Optional. */
   minOpenness: z.number().min(0).max(1).optional(),
+  /** Minimum greenery / natural beauty proxy (0–1). Optional. */
+  minGreenery: z.number().min(0).max(1).optional(),
 });
 
 export async function POST(request: Request): Promise<Response> {
@@ -63,6 +65,7 @@ export async function POST(request: Request): Promise<Response> {
       maxDriveTimeMin: body.maxDriveTimeMin,
       minSqm: body.minSqm,
       minOpenness: body.minOpenness,
+      minGreenery: body.minGreenery,
       nowMs,
     });
     return Response.json(candidates, { headers: cacheHeaders(3600) });

@@ -19,34 +19,32 @@ export interface BortleBand {
 }
 
 /**
- * SQM → Bortle table from prd.md §2.1. Bands are [min, max), i.e. a value of
- * exactly 21.99 falls in Bortle 2 (min 21.89, max 21.99 is exclusive of max).
+ * SQM → Bortle table from prd.md §2.1. Bands are [min, max], i.e. a value of
+ * exactly 21.99 falls in Bortle 1 (min 21.99).
  */
 export const BORTLE_BANDS: readonly BortleBand[] = [
   { bortle: 1, minSqm: 21.99, maxSqm: Infinity, label: "Excellent dark-sky site" },
   { bortle: 2, minSqm: 21.89, maxSqm: 21.99, label: "Typical truly dark site" },
   { bortle: 3, minSqm: 21.69, maxSqm: 21.89, label: "Rural sky" },
   { bortle: 4, minSqm: 20.49, maxSqm: 21.69, label: "Rural/suburban transition" },
-  { bortle: 5, minSqm: 19.5, maxSqm: 20.49, label: "Suburban sky" },
-  { bortle: 6, minSqm: 18.94, maxSqm: 19.5, label: "Bright suburban sky" },
+  { bortle: 5, minSqm: 19.50, maxSqm: 20.49, label: "Suburban sky" },
+  { bortle: 6, minSqm: 18.94, maxSqm: 19.50, label: "Bright suburban sky" },
   { bortle: 7, minSqm: 18.38, maxSqm: 18.94, label: "Suburban/urban transition" },
-  { bortle: 8, minSqm: 17.8, maxSqm: 18.38, label: "City sky" },
-  { bortle: 9, minSqm: -Infinity, maxSqm: 17.8, label: "Inner-city sky" },
+  { bortle: 8, minSqm: 17.80, maxSqm: 18.38, label: "City sky" },
+  { bortle: 9, minSqm: -Infinity, maxSqm: 17.80, label: "Inner-city sky" },
 ];
 
 /**
  * Modeled zenith SQM (mpsas) → approximate Bortle class (1–9).
  *
- * Bands are [min, max): a value exactly on a boundary classifies into the
- * darker (lower-numbered) band, matching the prd.md table layout.
+ * Higher SQM means darker skies. Evaluated from darkest (Bortle 1) to brightest (Bortle 9).
  */
 export function bortleFromSqm(sqmMpsas: number): number {
   for (const band of BORTLE_BANDS) {
-    if (sqmMpsas >= band.minSqm && sqmMpsas < band.maxSqm) {
+    if (sqmMpsas >= band.minSqm) {
       return band.bortle;
     }
   }
-  // Unreachable for finite input (bands span [-∞, +∞]); keep a safe fallback.
   return 9;
 }
 
