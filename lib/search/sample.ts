@@ -33,15 +33,18 @@ export function sampleCandidateCells(
   origin: Origin,
   count: number,
   spacingKm: number,
+  maxRings = 64,
 ): RawDarkCell[] {
   const cells: RawDarkCell[] = [];
   const placed: Array<{ lat: number; lon: number }> = [];
   let ring = 1;
 
-  while (cells.length < count && ring < 64) {
+  while (cells.length < count && ring <= maxRings) {
     const radiusKm = ring * spacingKm;
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
+    // For wider rings, use more radial spokes (8 to 16) to ensure dense uniform coverage
+    const spokes = ring > 8 ? 16 : 8;
+    for (let i = 0; i < spokes; i++) {
+      const angle = (i / spokes) * Math.PI * 2;
       const dLat = (radiusKm / 110.574) * Math.sin(angle);
       const dLon =
         (radiusKm / (111.32 * Math.max(0.1, Math.cos((origin.lat * Math.PI) / 180)))) *

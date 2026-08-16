@@ -7,6 +7,8 @@ import {
   sqmFromNelm,
   nelmFromBrightness,
   ratioFromBrightness,
+  estimateStarCount,
+  getMilkyWayVisibility,
 } from "@/lib/darkness/convert";
 
 describe("darkness conversions (prd.md §2.1)", () => {
@@ -49,5 +51,30 @@ describe("darkness conversions (prd.md §2.1)", () => {
   it("brightness → SQM → NELM pipeline stays finite", () => {
     const nelm = nelmFromBrightness(B_NATURAL_MCD + 1);
     expect(Number.isFinite(nelm)).toBe(true);
+  });
+
+  it("estimateStarCount scales exponentially with NELM", () => {
+    const starsUrban = estimateStarCount(2.5);
+    const starsSuburban = estimateStarCount(4.5);
+    const starsDark = estimateStarCount(6.5);
+
+    expect(starsUrban).toBeLessThan(100);
+    expect(starsSuburban).toBeGreaterThan(400);
+    expect(starsDark).toBeGreaterThan(2500);
+    expect(starsDark).toBeGreaterThan(starsSuburban);
+  });
+
+  it("getMilkyWayVisibility reports high contrast in pristine Bortle 1-2 and washed out under heavy clouds or bright skies", () => {
+    const pristine = getMilkyWayVisibility(1, 0, -90, 0);
+    expect(pristine.status).toBe("high-contrast");
+
+    const cloudy = getMilkyWayVisibility(1, 0, -90, 80);
+    expect(cloudy.status).toBe("not-visible");
+
+    const brightMoon = getMilkyWayVisibility(1, 0.9, 45, 0);
+    expect(brightMoon.status).toBe("faint");
+
+    const lightPolluted = getMilkyWayVisibility(7, 0, -90, 0);
+    expect(lightPolluted.status).toBe("not-visible");
   });
 });

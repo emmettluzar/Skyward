@@ -35,11 +35,11 @@ export const SEARCH_CONFIG = {
   /** prd.md §3.1 Mode 1 threshold search. */
   threshold: {
     /** Number of nearest qualifying cells sampled per search (k=40). */
-    candidateCellCount: 40,
+    candidateCellCount: 40 as number,
     /** Keep the top N by drive time (§3.1 step 5). */
-    returnCount: 8,
+    returnCount: 8 as number,
     /** Dedup minimum spacing between candidate cells, km (§3.1 step 2). */
-    cellSpacingKm: 3,
+    cellSpacingKm: 3 as number,
   },
 
   /** prd.md §3.3 Mode 3 time-budget (isochrone) search. */

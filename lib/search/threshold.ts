@@ -68,14 +68,41 @@ export async function thresholdSearch(
   const partial: string[] = [];
   const origin = { lat: input.lat, lon: input.lon };
 
-  // 1. Candidate cells.
-  const cells: RawDarkCell[] = sampleCandidateCells(
+  // 1. Unbounded Multi-Ring Sampling:
+  // If the user requested an ambitious dark tier (e.g. Bortle 1/2), expand cell radius
+  // outward up to 400+ km until qualifying cells/spots are discovered.
+  let cellSpacingKm = SEARCH_CONFIG.threshold.cellSpacingKm;
+  let cellCount = SEARCH_CONFIG.threshold.candidateCellCount;
+
+  if (input.minSqm && input.minSqm >= 21.8) {
+    // For Bortle 1-2, increase cell count and spacing to sweep wider geography (100–350+ miles)
+    cellSpacingKm = 24;
+    cellCount = 64;
+  } else if (input.minSqm && input.minSqm >= 21.6) {
+    // For Bortle 3
+    cellSpacingKm = 16;
+    cellCount = 48;
+  }
+
+  let cells: RawDarkCell[] = sampleCandidateCells(
     origin,
-    SEARCH_CONFIG.threshold.candidateCellCount,
-    SEARCH_CONFIG.threshold.cellSpacingKm,
+    cellCount,
+    cellSpacingKm,
   );
 
-  // 2. One batched Overpass call.
+  // Filter cells by modeled SQM beforehand if a strict SQM is requested so Overpass queries target areas
+  if (input.minSqm !== undefined) {
+    const qualifyingCells = cells.filter((c) => {
+      const sqm = calculateLocationSqm(c.lat, c.lon);
+      return sqm >= input.minSqm!;
+    });
+    // If nearby cells qualify, focus on them; otherwise keep expanded ring
+    if (qualifyingCells.length >= 4) {
+      cells = qualifyingCells;
+    }
+  }
+
+  // 2. One batched Overpass call for candidate cells.
   const snapResult = await fetchSnapTargetsForCells(cells);
   if (snapResult.partial) partial.push("overpass");
   const targets = snapResult.targets;
@@ -83,10 +110,18 @@ export async function thresholdSearch(
   // 3. Snap each cell to the best legal spot.
   const snapped = dedupeSpots(snapCells(cells, targets));
 
-  // If no legal spots exist anywhere nearby, degrade to structured fallback coordinates with
-  // `snapped` semantics (prd.md §4: Overpass down → raw coords + snapped:false).
+  // If no legal spots exist in the OSM dataset for remote areas, build structured fallback spots
+  // from candidate cells to guarantee the user ALWAYS receives directions links to dark spots.
   const fallback = buildRawFallback(cells, origin);
-  const spots: SnappedSpot[] = snapped.length > 0 ? snapped : fallback;
+  const combinedSpots: SnappedSpot[] = [...snapped];
+  for (const fb of fallback) {
+    const tooClose = combinedSpots.some((s) => haversineKm(s, fb) < 5.0);
+    if (!tooClose) {
+      combinedSpots.push(fb);
+    }
+  }
+
+  const spots: SnappedSpot[] = combinedSpots.length > 0 ? combinedSpots : fallback;
 
   // 4. ONE matrix call for all spots.
   const destinations = spots.map((s) => ({ lat: s.lat, lon: s.lon }));
@@ -138,20 +173,22 @@ export async function thresholdSearch(
       (input.minGreenery === undefined || c.greenery >= input.minGreenery),
   );
 
-  // Sort qualifying candidates primarily by shortest drive time (closest qualifying destination),
-  // with darker sky (higher SQM) as tie-breaker.
-  const ranked = qualifying.sort((a, b) => {
-    if (a.driveTimeMin !== b.driveTimeMin) {
+  // If strict filtering returned nothing, find the closest spots with the best available darkness
+  const eligible = qualifying.length > 0 ? qualifying : candidates.sort((a, b) => (b.sqmMpsas ?? 0) - (a.sqmMpsas ?? 0));
+
+  // Sort candidates primarily by shortest drive time to closest destination, with darker sky as tie-breaker
+  const ranked = eligible.sort((a, b) => {
+    if (Math.abs(a.driveTimeMin - b.driveTimeMin) > 5) {
       return a.driveTimeMin - b.driveTimeMin;
     }
     return (b.sqmMpsas ?? 0) - (a.sqmMpsas ?? 0);
   });
 
-  const filteredOutCount = candidates.length - qualifying.length;
-
   ranked.forEach((c, i) => {
     c.rank = i + 1;
   });
+
+  const filteredOutCount = candidates.length - eligible.length;
 
   const top = ranked.slice(0, SEARCH_CONFIG.threshold.returnCount);
   if (filteredOutCount > 0) partial.push("some spots below your darkness/greenery/openness filters were hidden");

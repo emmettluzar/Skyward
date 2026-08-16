@@ -113,8 +113,10 @@ export function sqmFromArtificialBrightness(bArtMcd: number): number {
  */
 export function estimateStarCount(nelm: number): number {
   const safeNelm = Math.max(1.0, Math.min(7.6, nelm));
-  const total = 0.5 * Math.pow(10, 0.52 * safeNelm + 0.35);
-  return Math.round(total / 25) * 25; // Round to nearest 25 for display cleanliness
+  // Total visible stars across observable hemisphere (Allen's Astrophysical Quantities)
+  // NELM 4.0 ≈ 300 stars, NELM 5.0 ≈ 900 stars, NELM 6.0 ≈ 2500 stars, NELM 6.5 ≈ 4500 stars
+  const total = 0.5 * Math.pow(10, 0.55 * safeNelm + 0.5);
+  return Math.max(15, Math.round(total / 25) * 25);
 }
 
 /**

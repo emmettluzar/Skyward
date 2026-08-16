@@ -28,9 +28,14 @@ import { useTimeBudget } from "@/lib/hooks/use-timebudget";
 import { useThresholdSearch } from "@/lib/hooks/use-threshold-search";
 import { kmToMiles } from "@/lib/geo/distance";
 import { bortleFromSqm, minSqmForBortle } from "@/lib/darkness/bortle";
-import { nelmFromSqm } from "@/lib/darkness/convert";
+import {
+  nelmFromSqm,
+  estimateStarCount,
+  getMilkyWayVisibility,
+} from "@/lib/darkness/convert";
 import { getLocationDarkness } from "@/lib/darkness/model";
 import type { CandidateSpot } from "@/lib/types/places";
+import { ChevronDown, ChevronUp, Star, Orbit } from "lucide-react";
 
 // Lazy-load MapLibre to avoid SSR issues (WebGL, window, etc.)
 const MapView = dynamic(() => import("@/components/map/MapView"), {
@@ -121,6 +126,7 @@ export default function HomeShell() {
   const [opennessFilter, setOpennessFilter] = useState<number>(0);
   const [greeneryFilter, setGreeneryFilter] = useState<number>(0);
   const [showBestInfo, setShowBestInfo] = useState(false);
+  const [isSheetCollapsed, setIsSheetCollapsed] = useState(false);
 
   const handleLocationReady = useCallback((lat: number, lng: number) => {
     setUserLocation({ lat, lng });
@@ -264,23 +270,46 @@ export default function HomeShell() {
         </div>
       </header>
 
-      {/* ── Bottom Sheet ── */}
-      <div className="absolute inset-x-0 bottom-0 z-10 flex max-h-[68dvh] flex-col gap-2.5 overflow-y-auto px-3 pb-5 sm:px-6 sm:pb-6">
-        {/* Location status & darkness badge */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/40 bg-card/85 px-3 py-1.5 text-xs text-muted-foreground shadow-xs backdrop-blur-md">
-          <div className="flex items-center gap-1.5">
-            <MapPin className="size-3.5 text-primary" />
-            {locationLoading ? (
-              <span className="inline-flex items-center gap-1.5">
-                <span className="block size-2 animate-pulse rounded-full bg-primary" />
-                Finding your location…
-              </span>
-            ) : (
-              <span>
-                Your Location: <strong>{activeLat.toFixed(3)}°, {activeLon.toFixed(3)}°</strong>
-                {userLocation === null ? " (default)" : ""}
-              </span>
-            )}
+      {/* ── Bottom Sheet (Collapsible & Spacious) ── */}
+      <div
+        className={`absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2.5 px-3 pb-5 sm:px-6 sm:pb-6 transition-all duration-300 ease-out ${
+          isSheetCollapsed ? "max-h-[72px] overflow-hidden" : "max-h-[72dvh] overflow-y-auto"
+        }`}
+      >
+        {/* Location status & darkness badge + Collapse toggle */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/40 bg-card/90 px-3 py-2 text-xs text-muted-foreground shadow-md backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsSheetCollapsed(!isSheetCollapsed)}
+              className="flex items-center gap-1 rounded-md bg-secondary/80 px-2 py-0.5 font-semibold text-foreground hover:bg-secondary transition-colors"
+              title={isSheetCollapsed ? "Expand panel" : "Collapse panel"}
+            >
+              {isSheetCollapsed ? (
+                <>
+                  <ChevronUp className="size-3.5 text-primary" />
+                  <span>Show Trips</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="size-3.5 text-primary" />
+                  <span>Hide Panel</span>
+                </>
+              )}
+            </button>
+            <div className="flex items-center gap-1.5">
+              <MapPin className="size-3.5 text-primary" />
+              {locationLoading ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="block size-2 animate-pulse rounded-full bg-primary" />
+                  Locating…
+                </span>
+              ) : (
+                <span>
+                  Home: <strong>{activeLat.toFixed(2)}°, {activeLon.toFixed(2)}°</strong>
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Current location Bortle & SQM display */}
@@ -463,6 +492,8 @@ export default function HomeShell() {
               isError={timeBudget.isError}
               selectedSpotId={selectedSpot?.osmId}
               onSpotSelect={handleSpotSelect}
+              originSqm={originDarkness.sqmMpsas}
+              originBortle={originDarkness.bortle}
               showScore
             />
 
@@ -534,6 +565,8 @@ export default function HomeShell() {
               isError={threshold.isError}
               selectedSpotId={selectedSpot?.osmId}
               onSpotSelect={handleSpotSelect}
+              originSqm={originDarkness.sqmMpsas}
+              originBortle={originDarkness.bortle}
             />
 
             {/* Selected site detail card */}
@@ -554,6 +587,8 @@ function ResultsPanel({
   isError,
   selectedSpotId,
   onSpotSelect,
+  originSqm,
+  originBortle,
   showScore,
 }: {
   spots: CandidateSpot[];
@@ -561,6 +596,8 @@ function ResultsPanel({
   isError: boolean;
   selectedSpotId?: string;
   onSpotSelect?: (spot: CandidateSpot) => void;
+  originSqm?: number;
+  originBortle?: number;
   showScore?: boolean;
 }) {
   if (isLoading) {
@@ -624,12 +661,26 @@ function ResultsPanel({
           const accessInfo = ACCESS_CONFIG[spot.accessConfidence] ?? ACCESS_CONFIG["verify-access"];
           const AccessIcon = accessInfo.icon;
 
+          // Astronomical calculations per card
+          const nelm = spot.sqmMpsas !== null ? nelmFromSqm(spot.sqmMpsas) : 5.0;
+          const starCount = estimateStarCount(nelm);
+          const milkyWay = getMilkyWayVisibility(bortle);
+
+          // Per-Location Worth It assessment
+          const isSameSkyAsHome =
+            originSqm !== undefined && spot.sqmMpsas !== null
+              ? Math.abs(spot.sqmMpsas - originSqm) < 0.25 || (originBortle !== undefined && bortle >= originBortle)
+              : false;
+
+          const greeneryPercent = Math.round(spot.greenery * 100);
+          const isNaturePark = greeneryPercent >= 70;
+
           return (
             <li key={spot.osmId}>
               <button
                 type="button"
                 onClick={() => onSpotSelect?.(spot)}
-                className={`group w-full rounded-xl border p-2.5 text-left transition-all ${
+                className={`group w-full rounded-xl border p-3 text-left transition-all ${
                   isSelected
                     ? "border-primary bg-primary/10 shadow-sm"
                     : "border-border/40 bg-secondary/30 hover:bg-secondary/70 hover:border-border/70"
@@ -649,31 +700,43 @@ function ResultsPanel({
                   </span>
                 </div>
 
-                {/* Line 2: Darkness (Bortle + SQM) & Distance */}
+                {/* Line 2: Standardized Darkness (Bortle + SQM) & Distance */}
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                   {/* Bortle badge */}
                   <span
                     className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${getBortleBadgeClass(
                       bortle,
                     )}`}
-                    title="Estimated zenith sky brightness on the Bortle scale"
+                    title="Modeled zenith sky brightness on the Bortle scale"
                   >
                     ≈ Bortle {bortle}
                   </span>
 
-                  {/* SQM unit */}
+                  {/* Standardized SQM */}
                   {spot.sqmMpsas !== null && (
                     <span
                       className="rounded-md border border-border/40 bg-background/50 px-1.5 py-0.5 text-[10px] font-mono font-medium text-foreground"
                       title="Sky Quality Meter (mag/arcsec²)"
                     >
-                      {spot.sqmMpsas.toFixed(2)} mag/arcsec²
+                      {spot.sqmMpsas.toFixed(2)} SQM
                     </span>
                   )}
 
-                  {/* Straight-line distance */}
+                  {/* Distance */}
                   <span className="text-muted-foreground">
                     {kmToMiles(spot.distKmFromOrigin).toFixed(1)} mi
+                  </span>
+
+                  {/* Greenery / Nature Tag */}
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
+                      isNaturePark
+                        ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                        : "bg-secondary text-muted-foreground border-border/40"
+                    }`}
+                  >
+                    <Trees className="size-3" />
+                    {greeneryPercent}% {isNaturePark ? "Nature / Park" : "Setting"}
                   </span>
 
                   {/* Access status */}
@@ -683,35 +746,45 @@ function ResultsPanel({
                     <AccessIcon className="size-3" />
                     {accessInfo.label}
                   </span>
+                </div>
 
-                  {/* Composite quality score */}
-                  {showScore && spot.score > 0 && (
-                    <span
-                      className="ml-auto rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary"
-                      title={spot.scoreReasons.join(" · ")}
-                    >
-                      Score {Math.round(spot.score * 100)}%
+                {/* Line 3: Astronomy Metrics (Stars & Milky Way) */}
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-background/40 px-2 py-1 text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-1 text-amber-200">
+                    <Star className="size-3 text-amber-400 fill-amber-400" />
+                    <span>~{starCount.toLocaleString()} stars visible</span>
+                  </div>
+                  <span className="text-border">•</span>
+                  <div className="flex items-center gap-1">
+                    <Orbit className="size-3 text-indigo-400" />
+                    <span className="text-foreground font-medium">Milky Way: {milkyWay.label}</span>
+                  </div>
+                </div>
+
+                {/* Line 4: Per-Location Worth It Warning OR Actions */}
+                {isSameSkyAsHome ? (
+                  <div className="mt-2 rounded-md bg-amber-950/40 border border-amber-500/30 px-2 py-1 text-[10px] text-amber-200 flex items-center gap-1.5">
+                    <ShieldAlert className="size-3 text-amber-400 shrink-0" />
+                    <span>Not Worth Driving — Same sky quality as your current location</span>
+                  </div>
+                ) : (
+                  <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-1.5 text-[11px] text-muted-foreground">
+                    <span className="truncate max-w-[220px]">
+                      {spot.scoreReasons.length > 0 ? spot.scoreReasons.join(" · ") : "Darker sky than home"}
                     </span>
-                  )}
-                </div>
-
-                {/* Line 3: Direct Actions & Reason */}
-                <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-1.5 text-[11px] text-muted-foreground">
-                  <span className="truncate max-w-[220px]">
-                    {spot.scoreReasons.length > 0 ? spot.scoreReasons.join(" · ") : "Good open sky visibility"}
-                  </span>
-                  <a
-                    href={spot.deepLinks.googleMaps}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-2 hover:underline"
-                    data-testid="directions-link"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Directions
-                    <ChevronRight className="size-3" />
-                  </a>
-                </div>
+                    <a
+                      href={spot.deepLinks.googleMaps}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                      data-testid="directions-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Directions
+                      <ChevronRight className="size-3" />
+                    </a>
+                  </div>
+                )}
               </button>
             </li>
           );

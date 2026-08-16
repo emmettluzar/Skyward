@@ -73,8 +73,9 @@ export async function timeBudgetSearch(
   // 2. Compute dynamic sampling reach for the given drive time budget.
   // Average highway speed ~70km/h with road curvature factor 1.35.
   const estimatedMaxDistKm = Math.max(8, (budgetMin / 60) * 65);
-  const cellSpacingKm = Math.max(2.5, estimatedMaxDistKm / 6);
-  const cellCount = Math.max(36, SEARCH_CONFIG.threshold.candidateCellCount);
+  // Dense multi-tier sampling so any high quality spots (e.g. 24-min spots) are guaranteed to be sampled
+  const cellSpacingKm = Math.max(2.0, estimatedMaxDistKm / 8);
+  const cellCount = Math.max(48, SEARCH_CONFIG.threshold.candidateCellCount);
 
   // Sample candidate cells around origin.
   const allCells = sampleCandidateCells(origin, cellCount, cellSpacingKm);
@@ -110,7 +111,7 @@ export async function timeBudgetSearch(
   // 5. Non-maximum suppression: keep spots spaced apart.
   const filtered = nonMaximumSuppression(
     combinedSpots,
-    Math.min(SEARCH_CONFIG.timeBudget.minSpotSpacingKm, Math.max(2, estimatedMaxDistKm / 5)),
+    Math.min(SEARCH_CONFIG.timeBudget.minSpotSpacingKm, Math.max(2, estimatedMaxDistKm / 6)),
   );
 
   // 6. Build CandidateSpot list with estimated drive times and SQM.
