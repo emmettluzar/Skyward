@@ -158,10 +158,25 @@ export function HourRibbon({
     ? `${darkStartStr} – ${darkEndStr}`
     : "Summer twilight (partial dark)";
 
-  // Find Peak Observing Hours (highest goAbility or best dark + clear hours)
-  const sortedByQuality = [...point.hours]
-    .filter((h) => h.twilight === "astro" || h.twilight === "nautical")
-    .sort((a, b) => (b.goAbility ?? 0) - (a.goAbility ?? 0));
+  // Find Peak Observing Hours (prioritize true astronomical darkness > nautical dusk > civil dusk combined with lowest cloud cover)
+  const sortedByQuality = [...point.hours].sort((a, b) => {
+    const aGo = a.goAbility ?? 0;
+    const bGo = b.goAbility ?? 0;
+    if (Math.abs(bGo - aGo) > 0.001) {
+      return bGo - aGo;
+    }
+    // Secondary tie-breaker: true astro dark over nautical/civil
+    const twRank = { astro: 3, nautical: 2, civil: 1, daylight: 0 };
+    const aTw = twRank[a.twilight] ?? 0;
+    const bTw = twRank[b.twilight] ?? 0;
+    if (bTw !== aTw) {
+      return bTw - aTw;
+    }
+    // Tertiary tie-breaker: lowest cloud fraction
+    const aCloud = maxCloudFrac(a) ?? 1;
+    const bCloud = maxCloudFrac(b) ?? 1;
+    return aCloud - bCloud;
+  });
 
   const bestHour = sortedByQuality[0] ?? point.hours[Math.floor(point.hours.length / 2)];
   const peakTimeStr = bestHour ? formatTimeOnly(bestHour.timeMs) : "Midnight";
@@ -258,46 +273,39 @@ export function HourRibbon({
                 {hourLabel(h.timeMs)}
               </span>
 
-              {/* Sky darkness indicator bar */}
-              <div
-                className={`mt-1 h-1.5 w-full rounded-full transition-colors ${
-                  h.twilight === "astro"
-                    ? "bg-indigo-500"
-                    : h.twilight === "nautical"
-                      ? "bg-purple-400"
-                      : h.twilight === "civil"
-                        ? "bg-amber-400"
-                        : "bg-blue-400"
-                }`}
-                title={`Sky darkness: ${h.twilight}`}
-              />
-
-              {/* Cloud cover visual bar */}
-              <div className="mt-1.5 flex h-8 w-full flex-col justify-end overflow-hidden rounded bg-background/80 p-0.5">
-                {clarity.cloudPct !== null ? (
-                  <div
-                    className={`w-full rounded-xs transition-all ${clarity.barColor}`}
-                    style={{
-                      height: `${Math.max(15, clarity.cloudPct)}%`,
-                      opacity: clarity.cloudPct <= 20 ? 0.95 : 0.75,
-                    }}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-[8px] text-muted-foreground">—</div>
-                )}
-              </div>
-
-              {/* Clarity status dot */}
-              <div className="mt-1 flex items-center justify-center">
-                <span
-                  className={`block size-1.5 rounded-full ${
-                    clarity.cloudPct !== null && clarity.cloudPct <= 25
-                      ? "bg-emerald-400 ring-2 ring-emerald-400/30"
-                      : clarity.cloudPct !== null && clarity.cloudPct <= 60
-                        ? "bg-amber-400"
-                        : "bg-zinc-500"
+              {/* Two evenly sized stacked bars: Top = Sky Lightness / Twilight State, Bottom = Cloud Cover */}
+              <div className="mt-1.5 flex w-full flex-col gap-1">
+                {/* Top bar: Sky lightness / astronomical darkness state */}
+                <div
+                  className={`h-4 w-full rounded-xs transition-colors ${
+                    h.twilight === "astro"
+                      ? "bg-indigo-900 border border-indigo-400/40"
+                      : h.twilight === "nautical"
+                        ? "bg-purple-700/80 border border-purple-400/30"
+                        : h.twilight === "civil"
+                          ? "bg-amber-500/70 border border-amber-400/30"
+                          : "bg-blue-500/60 border border-blue-400/30"
                   }`}
+                  title={`Sky darkness: ${h.twilight === "astro" ? "Astronomical Dark" : h.twilight === "nautical" ? "Nautical Dusk" : h.twilight === "civil" ? "Civil Twilight" : "Daylight"}`}
                 />
+
+                {/* Bottom bar: Sky clearness / cloud cover percentage */}
+                <div
+                  className="flex h-4 w-full flex-col justify-end overflow-hidden rounded-xs bg-background/90 p-0.5 border border-border/40"
+                  title={`Cloud cover: ${clarity.cloudPct !== null ? `${clarity.cloudPct}%` : "No data"}`}
+                >
+                  {clarity.cloudPct !== null ? (
+                    <div
+                      className={`w-full rounded-xs transition-all ${clarity.barColor}`}
+                      style={{
+                        height: `${Math.max(20, clarity.cloudPct)}%`,
+                        opacity: clarity.cloudPct <= 20 ? 0.95 : 0.8,
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-[7px] text-muted-foreground">—</div>
+                  )}
+                </div>
               </div>
             </button>
           );
@@ -341,19 +349,15 @@ export function HourRibbon({
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 text-[11px]">
             <div className="flex items-start gap-2">
               <span className="size-2.5 mt-0.5 shrink-0 rounded-full bg-indigo-500" />
-              <span><strong>Top Darkness Bar:</strong> Blue = Daylight, Yellow = Civil Twilight, Purple = Nautical Dusk, Indigo = Full Astronomical Dark.</span>
+              <span><strong>Top Bar (Sky Lightness):</strong> Indigo = Astronomical Dark, Purple = Nautical Dusk, Amber = Civil Twilight, Blue = Daylight.</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="size-2.5 mt-0.5 shrink-0 rounded-full bg-emerald-400" />
-              <span><strong>Middle Cloud Block:</strong> Bar height shows % cloud cover. Green = Clear (0–15%), Blue = Mostly Clear (15–40%), Amber = Partly Cloudy, Gray = Overcast.</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="size-2.5 mt-0.5 shrink-0 rounded-full bg-emerald-400 ring-2 ring-emerald-400/40" />
-              <span><strong>Bottom Dot:</strong> Green indicates high clarity; amber is moderate; gray is poor visibility.</span>
+              <span><strong>Bottom Bar (Cloud Cover %):</strong> Bar fill shows cloud percentage. Green = Clear (&le;15%), Blue = Mostly Clear (&le;40%), Amber = Partly Cloudy (&le;70%), Gray = Overcast.</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="size-2.5 mt-0.5 shrink-0 rounded-full bg-primary" />
-              <span><strong>Best Observing:</strong> Hours where Indigo bar (dark) aligns with minimal cloud (green/low bar).</span>
+              <span><strong>Best Observing:</strong> Hours where Indigo bar (true dark) aligns with lowest cloud fill.</span>
             </div>
           </div>
         </div>

@@ -82,15 +82,43 @@ export function transparencyFromHour(hour: HourConditionInput) {
  * Per-hour go-ability = C_cloud · M_moon · T_trans ∈ [0, 1], or null when
  * cloud data is missing (never fabricate a "clear" signal).
  */
+/**
+ * Twilight multiplier for astronomical darkness:
+ * - "astro" (sun < -18°): 1.0 (true darkness)
+ * - "nautical" (sun -12° to -18°): 0.45 (faint glow, suboptimal)
+ * - "civil" (sun -6° to -12°): 0.10 (bright twilight)
+ * - "daylight" (sun > -6°): 0.0 (daylight/sun up)
+ */
+function twilightMultiplier(twilight: HourConditionInput["twilight"]): number {
+  switch (twilight) {
+    case "astro":
+      return 1.0;
+    case "nautical":
+      return 0.45;
+    case "civil":
+      return 0.10;
+    case "daylight":
+    default:
+      return 0.0;
+  }
+}
+
+/**
+ * Per-hour go-ability = Twilight_darkness · C_cloud · M_moon · T_trans ∈ [0, 1], or null when
+ * cloud data is missing (never fabricate a "clear" signal).
+ *
+ * Prioritizes true astronomical darkness (astro > nautical > civil) combined with sky clearness.
+ */
 export function hourGoAbility(hour: HourConditionInput): number | null {
   const cloud = toCloudLayerHour(hour);
   if (cloud === null) return null;
 
+  const twDark = twilightMultiplier(hour.twilight);
   const cCloud = cloudFactor([cloud]).value;
   const mMoon = moonFactor([toMoonHour(hour)]).value;
   const tTrans = transparencyFactor(transparencyFromHour(hour)).value;
 
-  return cCloud * mMoon * tTrans;
+  return twDark * cCloud * mMoon * tTrans;
 }
 
 /** Keep only hours whose start falls within [startMs, endMs). */

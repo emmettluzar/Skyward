@@ -83,10 +83,12 @@ export function cardinalDirection(from: LatLon, to: LatLon): string {
 }
 
 /**
- * Approximate zenith SQM (mpsas) as a function of driving distance from an urban center.
- * Smoothly scales from 18.00 (inner city) to ~21.95 (remote dark sky).
+ * Approximate zenith SQM (mpsas) as a function of driving distance from an origin.
+ * Strictly monotonic with distance: further away from origin = darker sky (higher SQM).
  */
-export function estimateSqmFromDistance(distKm: number): number {
-  const sqm = 22.0 - 4.0 * Math.exp(-Math.max(0, distKm) / 38);
-  return Math.round(sqm * 100) / 100;
+export function estimateSqmFromDistance(distKm: number, originSqm = 18.2): number {
+  const maxSqm = 22.0;
+  const progress = 1 - Math.exp(-Math.max(0, distKm) / 40);
+  const sqm = originSqm + (maxSqm - originSqm) * progress;
+  return Math.min(22.0, Math.max(17.5, Math.round(sqm * 100) / 100));
 }

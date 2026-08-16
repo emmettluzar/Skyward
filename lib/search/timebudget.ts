@@ -25,9 +25,9 @@ import {
   haversineKm,
   estimatedDriveMinKm,
   cardinalDirection,
-  estimateSqmFromDistance,
   round3,
 } from "@/lib/geo/distance";
+import { calculateLocationSqm } from "@/lib/darkness/model";
 import { buildDeepLinks } from "@/lib/geo/deep-links";
 import type {
   CandidateSpot,
@@ -117,8 +117,8 @@ export async function timeBudgetSearch(
   const candidatePool: CandidateSpot[] = filtered.map((spot) => {
     const distKm = haversineKm(origin, spot);
     const driveTimeMin = Math.max(1, Math.round(estimatedDriveMinKm(distKm)));
-    // SQM: use spot's value if known, otherwise compute estimated darkness from distance.
-    const sqmMpsas = spot.sqmMpsas ?? estimateSqmFromDistance(distKm);
+    // SQM: use spot's value if known, otherwise compute modeled SQM from coordinate.
+    const sqmMpsas = spot.sqmMpsas ?? calculateLocationSqm(spot.lat, spot.lon);
 
     return {
       ...spot,
@@ -178,7 +178,7 @@ function buildFallbackSpots(
   return cells.map((cell, idx) => {
     const dir = cardinalDirection(origin, cell);
     const distKm = haversineKm(origin, cell);
-    const sqmMpsas = cell.sqmMpsas ?? estimateSqmFromDistance(distKm);
+    const sqmMpsas = cell.sqmMpsas ?? calculateLocationSqm(cell.lat, cell.lon);
 
     const nameOptions = [
       `Scenic viewing area (${dir})`,

@@ -244,50 +244,78 @@ function parkingQualityOf(el: OverpassElement): number {
   return 0.5;
 }
 
-/** Openness 0..1 — horizon openness / unobstructed 360° sky view (viewpoints, peaks, shorelines). */
+/** Openness 0..1 — horizon openness & canopy clearance (viewpoints, peaks, open water shorelines, clearings). */
 function opennessOf(el: OverpassElement): number {
   const type = classifyType(el);
+  const natural = tag(el, "natural");
+  const landuse = tag(el, "landuse");
+  const leisure = tag(el, "leisure");
+
+  // Dense forest canopy blocks zenith and horizon
+  if (natural === "wood" || landuse === "forest") return 0.35;
 
   switch (type) {
     case "viewpoint":
     case "peak":
-      return 1.0; // viewpoints/peaks are by definition open horizon
+      return 1.0; // viewpoints and mountain/hill peaks have unobstructed 360° horizon
     case "water_access":
-      return 0.95; // open unobstructed horizon over water
+      return 0.95; // shoreline / lake / ocean has clear open horizon over water
     case "open_green":
-      return 0.9;
-    case "pull-off":
-      return 0.8;
-    case "parking":
-      return 0.6;
+      if (natural === "beach" || natural === "grassland" || landuse === "meadow") return 0.92;
+      return 0.85;
     case "park":
-      return tag(el, "leisure") === "nature_reserve" ? 0.7 : 0.75;
+      if (leisure === "nature_reserve") return 0.75;
+      return 0.8;
     case "cemetery_field":
       return 0.7;
+    case "pull-off":
+      return 0.65;
+    case "parking":
+      return 0.55; // parking lots often have light poles or surrounding tree lines
     case "rest_area":
+      return 0.5;
     case "other":
     default:
-      return 0.65;
+      return 0.5;
   }
 }
 
-/** Greenery 0..1 — proxy for natural beauty, parkland, vegetation, preserving scenic nature over asphalt parking lots. */
+/** Greenery 0..1 — proxy for natural beauty, parkland, and scenic vegetation, prioritizing nature over asphalt lots. */
 function greeneryOf(el: OverpassElement): number {
   const type = classifyType(el);
   const leisure = tag(el, "leisure");
   const natural = tag(el, "natural");
   const landuse = tag(el, "landuse");
 
-  if (leisure === "nature_reserve" || natural === "wood" || natural === "scrub") return 1.0;
-  if (type === "park" || type === "open_green") return 0.95;
-  if (landuse === "meadow" || landuse === "grass" || natural === "grassland" || natural === "heath") return 0.9;
-  if (type === "peak" || type === "viewpoint") return 0.8;
-  if (type === "water_access") return 0.75;
-  if (type === "cemetery_field") return 0.6;
-  if (type === "pull-off") return 0.45;
-  if (type === "rest_area") return 0.35;
-  if (type === "parking") return 0.2; // asphalt parking lot has low greenery
-  return 0.4;
+  // Pristine protected nature and scenic conservation land
+  if (leisure === "nature_reserve" || natural === "wood" || landuse === "forest" || natural === "scrub") {
+    return 1.0;
+  }
+  if (type === "park" || type === "open_green") {
+    return 0.92;
+  }
+  if (landuse === "meadow" || landuse === "grass" || natural === "grassland" || natural === "heath" || natural === "beach") {
+    return 0.90;
+  }
+  if (type === "peak" || type === "viewpoint") {
+    return 0.82;
+  }
+  if (type === "water_access") {
+    return 0.75;
+  }
+  if (type === "cemetery_field") {
+    return 0.55;
+  }
+  if (type === "pull-off") {
+    return 0.40;
+  }
+  if (type === "rest_area") {
+    return 0.25;
+  }
+  if (type === "parking") {
+    return 0.15; // Asphalt parking lot has very low greenery score
+  }
+  return 0.35;
 }
 
 /** Prd §6 tier name used for the fallback label. */

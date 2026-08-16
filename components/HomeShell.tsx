@@ -29,6 +29,7 @@ import { useThresholdSearch } from "@/lib/hooks/use-threshold-search";
 import { kmToMiles } from "@/lib/geo/distance";
 import { bortleFromSqm, minSqmForBortle } from "@/lib/darkness/bortle";
 import { nelmFromSqm } from "@/lib/darkness/convert";
+import { getLocationDarkness } from "@/lib/darkness/model";
 import type { CandidateSpot } from "@/lib/types/places";
 
 // Lazy-load MapLibre to avoid SSR issues (WebGL, window, etc.)
@@ -54,13 +55,12 @@ const FALLBACK_LOCATION = { lat: 40.7128, lon: -74.006 };
 /** Drive-time budget presets (minutes). */
 const BUDGET_PRESETS = [30, 45, 60, 90, 120] as const;
 
-/** Bortle levels the user can choose for "Closest Dark Site". Lower is darker. */
+/** Bortle levels the user can choose for "Closest Dark Site". Lower is darker. Default is Bortle 1. */
 const BORTLE_OPTIONS = [
-  { label: "Any darkness", bortle: 0 },
-  { label: "≈ Bortle 4 or darker", bortle: 4 },
-  { label: "≈ Bortle 3 or darker", bortle: 3 },
+  { label: "≈ Bortle 1 (Pristine Dark)", bortle: 1 },
   { label: "≈ Bortle 2 or darker", bortle: 2 },
-  { label: "≈ Bortle 1 (Pristine)", bortle: 1 },
+  { label: "≈ Bortle 3 or darker", bortle: 3 },
+  { label: "≈ Bortle 4 or darker", bortle: 4 },
 ] as const;
 
 /** Openness (sky/horizon visibility) filter options. */
@@ -117,7 +117,7 @@ export default function HomeShell() {
   const [locationLoading, setLocationLoading] = useState(true);
   const [budgetMin, setBudgetMin] = useState<number>(45);
   const [customBudget, setCustomBudget] = useState<string>("");
-  const [bortleFilter, setBortleFilter] = useState<number>(0);
+  const [bortleFilter, setBortleFilter] = useState<number>(1);
   const [opennessFilter, setOpennessFilter] = useState<number>(0);
   const [greeneryFilter, setGreeneryFilter] = useState<number>(0);
   const [showBestInfo, setShowBestInfo] = useState(false);
@@ -144,6 +144,9 @@ export default function HomeShell() {
   // Use the live geolocation when available, otherwise the hardcoded fallback.
   const activeLat = userLocation?.lat ?? FALLBACK_LOCATION.lat;
   const activeLon = userLocation?.lng ?? FALLBACK_LOCATION.lon;
+
+  // Modeled darkness for current location
+  const originDarkness = getLocationDarkness(activeLat, activeLon);
 
   const conditions = useConditions({
     lat: activeLat,
@@ -263,8 +266,8 @@ export default function HomeShell() {
 
       {/* ── Bottom Sheet ── */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex max-h-[68dvh] flex-col gap-2.5 overflow-y-auto px-3 pb-5 sm:px-6 sm:pb-6">
-        {/* Location status badge */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        {/* Location status & darkness badge */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/40 bg-card/85 px-3 py-1.5 text-xs text-muted-foreground shadow-xs backdrop-blur-md">
           <div className="flex items-center gap-1.5">
             <MapPin className="size-3.5 text-primary" />
             {locationLoading ? (
@@ -274,14 +277,30 @@ export default function HomeShell() {
               </span>
             ) : (
               <span>
-                Origin: <strong>{activeLat.toFixed(3)}°, {activeLon.toFixed(3)}°</strong>
+                Your Location: <strong>{activeLat.toFixed(3)}°, {activeLon.toFixed(3)}°</strong>
                 {userLocation === null ? " (default)" : ""}
               </span>
             )}
           </div>
-          <span className="text-[11px] text-muted-foreground/70 hidden sm:inline">
-            Ranked by dark sky quality & drive time
-          </span>
+
+          {/* Current location Bortle & SQM display */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase font-semibold text-muted-foreground">Your Sky:</span>
+            <span
+              className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${getBortleBadgeClass(
+                originDarkness.bortle,
+              )}`}
+              title="Your current location sky brightness on the Bortle scale"
+            >
+              ≈ Bortle {originDarkness.bortle}
+            </span>
+            <span
+              className="rounded-md border border-border/40 bg-background/50 px-1.5 py-0.5 text-[10px] font-mono font-medium text-foreground"
+              title="Your current location Sky Quality Meter (mag/arcsec²)"
+            >
+              {originDarkness.sqmMpsas.toFixed(2)} SQM
+            </span>
+          </div>
         </div>
 
         {/* ── Mode selector tabs ── */}
@@ -356,56 +375,58 @@ export default function HomeShell() {
         {mode === "timebudget" ? (
           <>
             {/* Drive Time Budget Selector */}
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 bg-card/90 px-3 py-2.5 shadow-sm backdrop-blur-md">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                <Car className="size-3.5 text-primary" />
-                <span>Max drive time:</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {BUDGET_PRESETS.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => {
-                      setBudgetMin(m);
-                      setCustomBudget("");
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/40 bg-card/90 px-3 py-2.5 shadow-sm backdrop-blur-md">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                  <Car className="size-3.5 text-primary" />
+                  <span>Max drive:</span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {BUDGET_PRESETS.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        setBudgetMin(m);
+                        setCustomBudget("");
+                      }}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                        budgetMin === m && !isCustomBudget
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : "bg-secondary/70 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      }`}
+                    >
+                      {m} min
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={5}
+                    max={480}
+                    placeholder="Custom"
+                    value={customBudget}
+                    onChange={(e) => {
+                      setCustomBudget(e.target.value);
+                      const v = parseInt(e.target.value, 10);
+                      if (v >= 5 && v <= 480) setBudgetMin(v);
                     }}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
-                      budgetMin === m && !isCustomBudget
-                        ? "bg-primary text-primary-foreground shadow-xs"
-                        : "bg-secondary/70 text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    className={`w-16 rounded-lg bg-secondary/80 px-2 py-1 text-xs font-medium text-foreground placeholder:text-muted-foreground/50 ${
+                      isCustomBudget ? "ring-1 ring-primary" : ""
                     }`}
-                  >
-                    {m} min
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={5}
-                  max={480}
-                  placeholder="Custom"
-                  value={customBudget}
-                  onChange={(e) => {
-                    setCustomBudget(e.target.value);
-                    const v = parseInt(e.target.value, 10);
-                    if (v >= 5 && v <= 480) setBudgetMin(v);
-                  }}
-                  className={`w-16 rounded-lg bg-secondary/80 px-2 py-1 text-xs font-medium text-foreground placeholder:text-muted-foreground/50 ${
-                    isCustomBudget ? "ring-1 ring-primary" : ""
-                  }`}
-                  aria-label="Custom drive time in minutes"
-                />
-                <span className="text-xs text-muted-foreground">min</span>
+                    aria-label="Custom drive time in minutes"
+                  />
+                  <span className="text-xs text-muted-foreground">min</span>
+                </div>
               </div>
 
               {/* "How is 'best' decided?" info popup */}
               <button
                 type="button"
                 onClick={() => setShowBestInfo(!showBestInfo)}
-                className="ml-auto rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+                className="shrink-0 rounded-lg border border-border/40 bg-secondary/60 p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                 aria-label="How is best decided?"
                 title="How ranking is calculated"
               >
@@ -414,8 +435,18 @@ export default function HomeShell() {
             </div>
 
             {showBestInfo && (
-              <div className="rounded-xl border border-border/60 bg-card/95 p-3 text-xs text-muted-foreground shadow-md backdrop-blur-xl">
-                <p className="font-semibold text-foreground">How &ldquo;best&rdquo; spot is ranked:</p>
+              <div className="relative z-20 rounded-xl border border-border/60 bg-card/95 p-3 text-xs text-muted-foreground shadow-md backdrop-blur-xl">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-foreground">How &ldquo;best&rdquo; spot is ranked:</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowBestInfo(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label="Close ranking explanation"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
                 <p className="mt-1 leading-relaxed">
                   We balance 6 key factors: <strong>Zenith Darkness (20%)</strong> (modeled SQM & Bortle),{" "}
                   <strong>Open Horizon (25%)</strong>, <strong>Natural Setting & Greenery (15%)</strong>,{" "}

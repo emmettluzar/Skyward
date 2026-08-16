@@ -98,3 +98,81 @@ export function nelmFromBrightness(bTotalMcd: number): number {
 export function sqmFromArtificialBrightness(bArtMcd: number): number {
   return sqmFromBrightness(bArtMcd + B_NATURAL_MCD);
 }
+
+/**
+ * Estimated visible naked-eye star count based on NELM (Naked-Eye Limiting Magnitude).
+ *
+ * Astronomical star count distributions over the visible hemisphere (half of total sky):
+ * - NELM 2.0 (inner city / Bortle 9): ~10–20 stars
+ * - NELM 4.0 (suburbs / Bortle 6-7): ~250–350 stars
+ * - NELM 5.0 (rural-suburban / Bortle 5): ~800–1,000 stars
+ * - NELM 6.0 (rural / Bortle 3-4): ~2,200–2,800 stars
+ * - NELM 6.5–7.0+ (pristine dark sky / Bortle 1-2): ~4,500–6,000 stars
+ *
+ * Fits the exponential stellar density law: N_visible ≈ 0.5 * 10^(0.52 * NELM + 0.35).
+ */
+export function estimateStarCount(nelm: number): number {
+  const safeNelm = Math.max(1.0, Math.min(7.6, nelm));
+  const total = 0.5 * Math.pow(10, 0.52 * safeNelm + 0.35);
+  return Math.round(total / 25) * 25; // Round to nearest 25 for display cleanliness
+}
+
+/**
+ * Evaluates Milky Way visibility description based on Bortle class, moon altitude/phase, and cloud cover.
+ */
+export function getMilkyWayVisibility(
+  bortle: number,
+  moonIllumFraction = 0,
+  moonAltitudeDeg = -90,
+  cloudCoverPercent = 0,
+): {
+  status: "high-contrast" | "visible" | "faint" | "not-visible";
+  label: string;
+  description: string;
+} {
+  // Heavy clouds block the sky
+  if (cloudCoverPercent > 65) {
+    return {
+      status: "not-visible",
+      label: "Blocked by Clouds",
+      description: "Cloud cover obscures Milky Way structure tonight",
+    };
+  }
+
+  // Bright moon above horizon washes out the Milky Way
+  const moonInterfering = moonAltitudeDeg > 0 && moonIllumFraction > 0.45;
+  if (moonInterfering) {
+    return {
+      status: "faint",
+      label: "Dimmed by Moonlight",
+      description: `Moon (${Math.round(moonIllumFraction * 100)}% lit) reduces contrast`,
+    };
+  }
+
+  if (bortle <= 2) {
+    return {
+      status: "high-contrast",
+      label: "Brilliant & Detailed",
+      description: "Great Rift, dust lanes, and galactic core clearly visible",
+    };
+  }
+  if (bortle <= 4) {
+    return {
+      status: "visible",
+      label: "Clearly Visible",
+      description: "Arches overhead with distinct bright patches and structure",
+    };
+  }
+  if (bortle <= 5) {
+    return {
+      status: "faint",
+      label: "Faint / Subdued",
+      description: "Faintly detectable near zenith away from horizon glow",
+    };
+  }
+  return {
+    status: "not-visible",
+    label: "Washed Out",
+    description: "Light pollution prevents naked-eye Milky Way observation",
+  };
+}

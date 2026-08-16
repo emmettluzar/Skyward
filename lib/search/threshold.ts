@@ -25,9 +25,9 @@ import { bestScore } from "./rank";
 import {
   haversineKm,
   cardinalDirection,
-  estimateSqmFromDistance,
   round3,
 } from "@/lib/geo/distance";
+import { calculateLocationSqm } from "@/lib/darkness/model";
 import { buildDeepLinks } from "@/lib/geo/deep-links";
 import type {
   CandidateSpot,
@@ -103,7 +103,7 @@ export async function thresholdSearch(
         ? Math.round(minutes[i])
         : Math.max(1, Math.round((distKm * 1.35) / 70 * 60));
 
-      const sqmMpsas = spot.sqmMpsas ?? estimateSqmFromDistance(distKm);
+      const sqmMpsas = spot.sqmMpsas ?? calculateLocationSqm(spot.lat, spot.lon);
       const driveTimeEstimated = matrix.estimated || !Number.isFinite(minutes[i]);
       const { score, reasons: scoreReasons } = bestScore({
         openness: spot.openness,
@@ -127,18 +127,25 @@ export async function thresholdSearch(
     })
     .filter((c) => input.maxDriveTimeMin === undefined || c.driveTimeMin <= input.maxDriveTimeMin);
 
-  // Apply the darkness/greenery/openness filters. If nothing passes strict filters, fall back to the
-  // full list so the user always gets the best options available.
+  // Apply the darkness/greenery/openness filters strictly.
+  // 1. Darkness filter: strictly exclude any site with a higher Bortle number (i.e. SQM < minSqm).
+  // 2. Openness filter: strictly enforce minimum horizon openness.
+  // 3. Greenery filter: strictly enforce minimum nature / natural setting.
   const qualifying = candidates.filter(
     (c) =>
-      (input.minSqm === undefined || c.sqmMpsas === null || c.sqmMpsas >= input.minSqm) &&
+      (input.minSqm === undefined || (c.sqmMpsas !== null && c.sqmMpsas >= input.minSqm)) &&
       (input.minOpenness === undefined || c.openness >= input.minOpenness) &&
       (input.minGreenery === undefined || c.greenery >= input.minGreenery),
   );
 
-  const ranked = (qualifying.length > 0 ? qualifying : candidates).sort(
-    (a, b) => a.driveTimeMin - b.driveTimeMin,
-  );
+  // Sort qualifying candidates primarily by shortest drive time (closest qualifying destination),
+  // with darker sky (higher SQM) as tie-breaker.
+  const ranked = qualifying.sort((a, b) => {
+    if (a.driveTimeMin !== b.driveTimeMin) {
+      return a.driveTimeMin - b.driveTimeMin;
+    }
+    return (b.sqmMpsas ?? 0) - (a.sqmMpsas ?? 0);
+  });
 
   const filteredOutCount = candidates.length - qualifying.length;
 
@@ -171,7 +178,7 @@ function buildRawFallback(
   return cells.map((cell, idx) => {
     const dir = cardinalDirection(origin, cell);
     const distKm = haversineKm(origin, cell);
-    const sqmMpsas = cell.sqmMpsas ?? estimateSqmFromDistance(distKm);
+    const sqmMpsas = cell.sqmMpsas ?? calculateLocationSqm(cell.lat, cell.lon);
 
     const nameOptions = [
       `Scenic viewing area (${dir})`,

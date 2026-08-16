@@ -64,7 +64,7 @@ test.describe("Skyward smoke", () => {
     // 4. Switch to the Closest Dark Site tab and choose a darkness level.
     await page.getByRole("button", { name: /Closest Dark Site/ }).click();
     await expect(page.getByLabel("Minimum darkness level")).toBeVisible();
-    await page.getByLabel("Minimum darkness level").selectOption("4");
+    await page.getByLabel("Minimum darkness level").selectOption("1");
   });
 
   test("custom drive time input accepts a typed value", async ({ page, context }) => {

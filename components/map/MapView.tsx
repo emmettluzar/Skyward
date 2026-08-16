@@ -10,9 +10,10 @@ import {
   type LngLatLike,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Layers, Locate, Crosshair, Sparkles } from "lucide-react";
+import { Layers, Sparkles } from "lucide-react";
 import type { CandidateSpot, GeoJsonFeatureCollection } from "@/lib/types/places";
 import { bortleFromSqm } from "@/lib/darkness/bortle";
+import { generateHighResHeatmapPoints } from "@/lib/darkness/model";
 
 /**
  * OpenFreeMap dark style URL.
@@ -82,23 +83,6 @@ const MapView: FC<MapViewProps> = ({
     }
   }, [showHeatmap]);
 
-  // Handle Recenter on User Location (Bullseye button)
-  const handleRecenterOrigin = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (userOrigin) {
-      map.flyTo({ center: userOrigin as LngLatLike, zoom: 11, essential: true });
-    } else if (geolocateControlRef.current) {
-      geolocateControlRef.current.trigger();
-    }
-  }, [userOrigin]);
-
-  // Handle Request/Refresh Live GPS Location (Locate button)
-  const handleGpsLocate = useCallback(() => {
-    if (geolocateControlRef.current) {
-      geolocateControlRef.current.trigger();
-    }
-  }, []);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -164,28 +148,20 @@ const MapView: FC<MapViewProps> = ({
     map.on("style.load", () => {
       geolocate.trigger();
 
-      // Add synthetic light-pollution radiant glow overlay around population centers & dark areas
+      // Add granular high-resolution light pollution heatmap overlay
+      const initialCenter = center ?? userOrigin ?? DEFAULT_CENTER;
+      const initialPoints = generateHighResHeatmapPoints(initialCenter[1], initialCenter[0], 250, 4);
+
       if (!map.getSource("lp-heat-source")) {
         map.addSource("lp-heat-source", {
           type: "geojson",
           data: {
             type: "FeatureCollection",
-            features: [
-              // Broad city radiant points to generate realistic heatmap gradients
-              { type: "Feature", properties: { intensity: 1.0 }, geometry: { type: "Point", coordinates: [-74.006, 40.7128] } },
-              { type: "Feature", properties: { intensity: 0.9 }, geometry: { type: "Point", coordinates: [-75.165, 39.9526] } },
-              { type: "Feature", properties: { intensity: 0.85 }, geometry: { type: "Point", coordinates: [-71.058, 42.3601] } },
-              { type: "Feature", properties: { intensity: 0.95 }, geometry: { type: "Point", coordinates: [-87.629, 41.8781] } },
-              { type: "Feature", properties: { intensity: 1.0 }, geometry: { type: "Point", coordinates: [-118.243, 34.0522] } },
-              { type: "Feature", properties: { intensity: 0.9 }, geometry: { type: "Point", coordinates: [-122.419, 37.7749] } },
-              { type: "Feature", properties: { intensity: 0.8 }, geometry: { type: "Point", coordinates: [-95.369, 29.7604] } },
-              { type: "Feature", properties: { intensity: 0.8 }, geometry: { type: "Point", coordinates: [-84.388, 33.749] } },
-              { type: "Feature", properties: { intensity: 0.85 }, geometry: { type: "Point", coordinates: [-104.99, 39.7392] } },
-              { type: "Feature", properties: { intensity: 0.85 }, geometry: { type: "Point", coordinates: [-122.332, 47.6062] } },
-              { type: "Feature", properties: { intensity: 0.8 }, geometry: { type: "Point", coordinates: [-112.074, 33.4484] } },
-              { type: "Feature", properties: { intensity: 0.75 }, geometry: { type: "Point", coordinates: [-93.265, 44.9778] } },
-              { type: "Feature", properties: { intensity: 0.75 }, geometry: { type: "Point", coordinates: [-97.743, 30.2672] } },
-            ],
+            features: initialPoints.map((p) => ({
+              type: "Feature",
+              properties: { intensity: p.intensity },
+              geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+            })),
           },
         });
 
@@ -195,21 +171,37 @@ const MapView: FC<MapViewProps> = ({
           source: "lp-heat-source",
           paint: {
             "heatmap-weight": ["get", "intensity"],
-            "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 1.5, 9, 3],
-            // Color ramp from dark sky (indigo/blue) through green/yellow to bright urban (orange/red/white)
+            "heatmap-intensity": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              3, 1.0,
+              7, 2.0,
+              11, 3.5,
+              14, 5.0,
+            ],
+            // Color ramp from pristine dark sky through rural, suburban to intense urban core
             "heatmap-color": [
               "interpolate",
               ["linear"],
               ["heatmap-density"],
-              0, "rgba(10, 15, 30, 0)",
-              0.15, "rgba(30, 58, 138, 0.35)",
-              0.35, "rgba(5, 150, 105, 0.45)",
-              0.6, "rgba(234, 179, 8, 0.55)",
-              0.8, "rgba(239, 68, 68, 0.65)",
-              1.0, "rgba(255, 255, 255, 0.85)",
+              0, "rgba(8, 12, 28, 0)",
+              0.12, "rgba(24, 48, 100, 0.25)",
+              0.28, "rgba(16, 110, 80, 0.40)",
+              0.48, "rgba(180, 150, 15, 0.55)",
+              0.72, "rgba(220, 60, 40, 0.70)",
+              0.92, "rgba(255, 240, 240, 0.88)",
             ],
-            "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 30, 9, 120],
-            "heatmap-opacity": 0.6,
+            "heatmap-radius": [
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              3, 15,
+              7, 28,
+              10, 45,
+              13, 75,
+            ],
+            "heatmap-opacity": 0.65,
           },
         });
       }
@@ -231,12 +223,29 @@ const MapView: FC<MapViewProps> = ({
     return () => window.removeEventListener("resize", handler);
   }, []);
 
-  // Recenter when `center` prop changes
+  // Recenter and dynamically update high-resolution light pollution grid around user origin / center
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !center) return;
-    map.flyTo({ center: center as LngLatLike, zoom: 10 });
-  }, [center]);
+    if (!map) return;
+    const target = center ?? userOrigin;
+    if (target) {
+      if (center) {
+        map.flyTo({ center: center as LngLatLike, zoom: 10 });
+      }
+      const source = map.getSource("lp-heat-source");
+      if (source && "setData" in source) {
+        const points = generateHighResHeatmapPoints(target[1], target[0], 250, 4);
+        (source as { setData: (data: unknown) => void }).setData({
+          type: "FeatureCollection",
+          features: points.map((p) => ({
+            type: "Feature",
+            properties: { intensity: p.intensity },
+            geometry: { type: "Point", coordinates: [p.lon, p.lat] },
+          })),
+        });
+      }
+    }
+  }, [center, userOrigin]);
 
   // Place candidate markers
   useEffect(() => {
@@ -374,17 +383,6 @@ const MapView: FC<MapViewProps> = ({
         >
           <Layers className="size-3.5" />
           <span>{showHeatmap ? "Heatmap On" : "Heatmap Off"}</span>
-        </button>
-
-        {/* Recenter Origin Button (Bullseye) */}
-        <button
-          type="button"
-          onClick={handleRecenterOrigin}
-          className="flex items-center gap-1.5 rounded-xl border border-border/50 bg-card/90 px-2.5 py-1.5 text-xs font-semibold text-foreground shadow-md backdrop-blur-md transition-all hover:bg-secondary"
-          title="Recenter map view on your origin"
-        >
-          <Crosshair className="size-3.5 text-primary" />
-          <span>Center Origin</span>
         </button>
       </div>
 
