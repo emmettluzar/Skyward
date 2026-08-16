@@ -2,15 +2,26 @@
  * Candidate dark-cell sampling (prd.md §3.1 step 2, §3.3 step 3).
  *
  * The Phase 0 darkness raster is not published yet (no data/manifest.json, no
- * lib/darkness/raster.ts), so the "qualifying cells" step degrades honestly to
- * a spatial expanding-ring sample around the origin: every cell is returned
- * with `sqmMpsas: null`. When the raster lands, this module becomes the place
- * where the ring sample is filtered by the darkness threshold — but it must
- * NEVER fabricate a darkness value in the meantime.
+ * lib/darkness/raster.ts), so "qualifying cells" degrades honestly to a
+ * spatial expanding-ring sample around the origin combined with the offline,
+ * pure zenith-brightness model in lib/darkness/model.ts (calculateLocationSqm)
+ * — never fabricating a value, just deterministically modeling one.
  *
  * Pure: no I/O, no Date.now(), no new dependencies. Point-in-polygon is a small
  * local ray-casting implementation (avoids pulling @turf into the bundle for
  * one predicate).
+ *
+ * IMPORTANT (bugfix, see .clinerules audit): the original ring sampler used a
+ * FIXED spoke count per ring (8, growing to 16 past ring 8). Since a ring's
+ * circumference grows linearly with its radius, a fixed spoke count means the
+ * arc-length gap between adjacent sampled points grows without bound at larger
+ * radii — real dark-sky sites many kilometres from any sampled point were
+ * silently skipped even though they were well within the search radius. Every
+ * sampler below instead sizes its spoke count from the ring's own
+ * circumference so the arc-length gap stays close to `spacingKm` at every
+ * radius (capped for performance), giving genuinely uniform, gap-free
+ * coverage — the "unified, comprehensive candidate search" all search modes
+ * now share.
  */
 
 import type { RawDarkCell } from "@/lib/types/places";
@@ -22,46 +33,65 @@ export interface Origin {
   lon: number;
 }
 
+/** Hard ceiling on spokes-per-ring so a single huge ring can't blow up cost. */
+const MAX_SPOKES_PER_RING = 64;
+/** Floor on spokes-per-ring so tiny inner rings still get some coverage. */
+const MIN_SPOKES_PER_RING = 8;
+
+/** Convert a lat/lon offset (km, at a bearing angle) into a lat/lon point. */
+function offsetPoint(origin: Origin, radiusKm: number, angleRad: number): { lat: number; lon: number } {
+  const dLat = (radiusKm / 110.574) * Math.sin(angleRad);
+  const dLon =
+    (radiusKm / (111.32 * Math.max(0.1, Math.cos((origin.lat * Math.PI) / 180)))) *
+    Math.cos(angleRad);
+  return { lat: round3(origin.lat + dLat), lon: round3(origin.lon + dLon) };
+}
+
 /**
- * Generate an expanding-ring sample of candidate cells around an origin.
+ * Sample every ring cell in the annulus `[innerRadiusKm, outerRadiusKm]`
+ * around an origin, spaced roughly `spacingKm` apart both radially and along
+ * each ring's circumference (spoke count derived from circumference, capped
+ * for cost). This is the single sampling primitive every search mode uses —
+ * it never silently under-samples the outer edge of its own search radius.
  *
- * Rings grow by `spacingKm` until `count` cells are produced. 8 cells per ring
- * (every 45°). This mirrors prd.md §3.1 step 2 but WITHOUT darkness filtering
- * (raster unpublished → all cells pass, sqm null).
+ * Passing `innerRadiusKm = 0` fills the whole disc out to `outerRadiusKm`.
  */
-export function sampleCandidateCells(
+export function sampleAnnulusCells(
   origin: Origin,
-  count: number,
+  innerRadiusKm: number,
+  outerRadiusKm: number,
   spacingKm: number,
-  maxRings = 64,
 ): RawDarkCell[] {
   const cells: RawDarkCell[] = [];
   const placed: Array<{ lat: number; lon: number }> = [];
-  let ring = 1;
+  const spacing = Math.max(0.1, spacingKm);
+  const minSpacingForDedupe = spacing * 0.6;
 
-  while (cells.length < count && ring <= maxRings) {
-    const radiusKm = ring * spacingKm;
-    // For wider rings, use more radial spokes (8 to 16) to ensure dense uniform coverage
-    const spokes = ring > 8 ? 16 : 8;
+  // Always sample the very centre once when starting from the origin so a
+  // dark site right at the user's location isn't missed.
+  if (innerRadiusKm <= 0) {
+    cells.push({ lat: round3(origin.lat), lon: round3(origin.lon), sqmMpsas: null });
+    placed.push({ lat: origin.lat, lon: origin.lon });
+  }
+
+  const start = Math.max(spacing, innerRadiusKm > 0 ? innerRadiusKm : spacing);
+  for (let r = start; r <= outerRadiusKm + 1e-6; r += spacing) {
+    const circumferenceKm = 2 * Math.PI * r;
+    const spokes = Math.min(
+      MAX_SPOKES_PER_RING,
+      Math.max(MIN_SPOKES_PER_RING, Math.round(circumferenceKm / spacing)),
+    );
+
     for (let i = 0; i < spokes; i++) {
       const angle = (i / spokes) * Math.PI * 2;
-      const dLat = (radiusKm / 110.574) * Math.sin(angle);
-      const dLon =
-        (radiusKm / (111.32 * Math.max(0.1, Math.cos((origin.lat * Math.PI) / 180)))) *
-        Math.cos(angle);
+      const { lat, lon } = offsetPoint(origin, r, angle);
 
-      const lat = round3(origin.lat + dLat);
-      const lon = round3(origin.lon + dLon);
-
-      // Enforce minimum spacing against already-placed cells (dedup, §3.1).
-      const tooClose = placed.some((p) => haversineKm(p, { lat, lon }) < spacingKm);
+      const tooClose = placed.some((p) => haversineKm(p, { lat, lon }) < minSpacingForDedupe);
       if (tooClose) continue;
 
       placed.push({ lat, lon });
       cells.push({ lat, lon, sqmMpsas: null });
-      if (cells.length >= count) break;
     }
-    ring += 1;
   }
 
   return cells;
@@ -111,4 +141,23 @@ export function filterCellsInRadius(
   radiusKm: number,
 ): RawDarkCell[] {
   return cells.filter((c) => haversineKm(origin, c) <= radiusKm);
+}
+
+/**
+ * The farthest distance (km) from `origin` to any vertex of a polygon ring.
+ * Used to size candidate sampling so it covers the isochrone's *actual*
+ * reachable extent (which can reach farther than a circular estimate along
+ * highways) rather than an underestimate that silently drops real spots.
+ */
+export function polygonMaxRadiusKm(
+  origin: Origin,
+  ring: readonly (readonly [number, number])[] | null,
+): number | null {
+  if (!ring || ring.length === 0) return null;
+  let max = 0;
+  for (const [lon, lat] of ring) {
+    const d = haversineKm(origin, { lat, lon });
+    if (d > max) max = d;
+  }
+  return max;
 }

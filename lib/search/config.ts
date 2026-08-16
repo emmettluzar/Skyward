@@ -32,14 +32,22 @@ export const SEARCH_CONFIG = {
     maxDarknessDeltaSqm: 1.0,
   },
 
-  /** prd.md §3.1 Mode 1 threshold search. */
+  /**
+   * prd.md §3.1 Mode 1 threshold search.
+   *
+   * The actual search radius/spacing is computed dynamically in
+   * lib/search/threshold.ts (it expands outward in bands — see
+   * `RADIUS_STEPS_KM` there — because a genuinely dark Bortle 1/2 site can
+   * legitimately be hundreds of km from a light-polluted origin, and a fixed
+   * radius/spacing here would either miss it or waste a query on a giant
+   * area). `candidateCellCount` caps how many of the nearest *qualifying*
+   * cells within a band we spend the Overpass/Valhalla budget on.
+   */
   threshold: {
-    /** Number of nearest qualifying cells sampled per search (k=40). */
+    /** Nearest qualifying cells sent to Overpass/Valhalla per band (k=40). */
     candidateCellCount: 40 as number,
     /** Keep the top N by drive time (§3.1 step 5). */
     returnCount: 8 as number,
-    /** Dedup minimum spacing between candidate cells, km (§3.1 step 2). */
-    cellSpacingKm: 3 as number,
   },
 
   /** prd.md §3.3 Mode 3 time-budget (isochrone) search. */

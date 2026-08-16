@@ -3,21 +3,32 @@
  *
  *   "Find me the closest place that's at least Bortle 4."
  *
- * Pipeline:
- *   1. Sample k nearest candidate cells (expanding ring; raster unpublished →
- *      every cell qualifies, sqm modeled).
- *   2. One Overpass call for ALL cells (batched bbox).
- *   3. Snap cells to legal spots (prd.md §6), hard-excluding private land in
- *      the Overpass query + normalizer.
- *   4. ONE Valhalla matrix call for real drive times (Haversine fallback).
- *   5. Sort by drive time, keep top N, return with reason strings.
+ * Pipeline (rewritten — see .clinerules audit for the bugs this fixes):
+ *   1. Expand outward in annular bands from the origin. For each band, use the
+ *      pure, offline zenith-brightness model (lib/darkness/model.ts) — NOT a
+ *      network call — to find which sampled cells actually satisfy the
+ *      requested darkness bar. This lets us search arbitrarily far (a genuine
+ *      Bortle 1 site can legitimately be hundreds of km away) without ever
+ *      guessing a fixed radius that happens to be too small for the tier the
+ *      user picked.
+ *   2. Only once a band contains qualifying cells do we spend an Overpass call
+ *      (batched bbox, ≤1 per band) to snap them to real legal spots, and a
+ *      Valhalla matrix call for real drive times.
+ *   3. Apply the darkness/openness/greenery filters STRICTLY — never fall
+ *      back to a brighter tier or an unfiltered result just because the
+ *      current band came up empty; keep expanding instead.
+ *   4. Sort by drive time (closest qualifying site first), darker as tie-break.
  *
- * Budget (.clinerules §4): ≤1 Overpass + ≤1 Valhalla matrix per search. We do
- * NOT loop over cells for any network call.
+ * Budget (.clinerules §4): a single search issues ONE Overpass + ONE Valhalla
+ * matrix call in the common case (something qualifies in the first band).
+ * Only pathological cases — a very strict combination of darkness/openness/
+ * greenery filters with nothing nearby — spend one extra call per expansion
+ * step, and only until a real qualifying site is found or the search radius
+ * cap is reached.
  */
 
 import { SEARCH_CONFIG } from "./config";
-import { sampleCandidateCells } from "./sample";
+import { sampleAnnulusCells } from "./sample";
 import { fetchSnapTargetsForCells } from "@/lib/upstream/overpass";
 import { fetchMatrix } from "@/lib/upstream/valhalla";
 import { snapCells, dedupeSpots } from "./snap";
@@ -26,6 +37,7 @@ import {
   haversineKm,
   cardinalDirection,
   round3,
+  estimatedDriveMinKm,
 } from "@/lib/geo/distance";
 import { calculateLocationSqm } from "@/lib/darkness/model";
 import { buildDeepLinks } from "@/lib/geo/deep-links";
@@ -58,6 +70,19 @@ export interface ThresholdSearchInput {
 }
 
 /**
+ * Expanding search radius caps (km). We search each band in turn and stop as
+ * soon as one contains a qualifying site — a legitimately remote Bortle 1/2
+ * site is found by continuing outward, never by silently substituting a
+ * brighter tier (see .clinerules audit, item 2).
+ */
+const RADIUS_STEPS_KM = [40, 80, 160, 320, 640, 1000] as const;
+
+/** Spacing (km) for a given outer band radius — denser near, coarser far. */
+function spacingForRadiusKm(radiusKm: number): number {
+  return Math.max(2, Math.min(20, radiusKm / 20));
+}
+
+/**
  * Run the full Mode 1 pipeline. Returns an honest CandidatesResponse with
  * `partial` flags when Overpass or Valhalla degraded — never throws for
  * upstream unavailability.
@@ -68,75 +93,71 @@ export async function thresholdSearch(
   const partial: string[] = [];
   const origin = { lat: input.lat, lon: input.lon };
 
-  // 1. Unbounded Multi-Ring Sampling:
-  // If the user requested an ambitious dark tier (e.g. Bortle 1/2), expand cell radius
-  // outward up to 400+ km until qualifying cells/spots are discovered.
-  let cellSpacingKm = SEARCH_CONFIG.threshold.cellSpacingKm;
-  let cellCount = SEARCH_CONFIG.threshold.candidateCellCount;
+  // If the caller supplied a hard drive-time cap, there's no point sampling
+  // far beyond what that budget could ever reach.
+  const maxReachableKm = input.maxDriveTimeMin
+    ? ((input.maxDriveTimeMin / 60) * 70) / 1.35 * 1.15 // +15% slack
+    : Infinity;
+  const radiusSteps: number[] = RADIUS_STEPS_KM.filter((r) => r <= maxReachableKm);
+  if (radiusSteps.length === 0) radiusSteps.push(Math.min(maxReachableKm, RADIUS_STEPS_KM[0]));
 
-  if (input.minSqm && input.minSqm >= 21.8) {
-    // For Bortle 1-2, increase cell count and spacing to sweep wider geography (100–350+ miles)
-    cellSpacingKm = 24;
-    cellCount = 64;
-  } else if (input.minSqm && input.minSqm >= 21.6) {
-    // For Bortle 3
-    cellSpacingKm = 16;
-    cellCount = 48;
-  }
+  let matrixEstimated = false;
+  let qualifying: CandidateSpot[] = [];
+  let sawAnyCandidates = false;
+  let prevRadius = 0;
 
-  let cells: RawDarkCell[] = sampleCandidateCells(
-    origin,
-    cellCount,
-    cellSpacingKm,
-  );
+  for (const outerRadiusKm of radiusSteps) {
+    const spacingKm = spacingForRadiusKm(outerRadiusKm);
+    const band = sampleAnnulusCells(origin, prevRadius, outerRadiusKm, spacingKm);
 
-  // Filter cells by modeled SQM beforehand if a strict SQM is requested so Overpass queries target areas
-  if (input.minSqm !== undefined) {
-    const qualifyingCells = cells.filter((c) => {
-      const sqm = calculateLocationSqm(c.lat, c.lon);
-      return sqm >= input.minSqm!;
-    });
-    // If nearby cells qualify, focus on them; otherwise keep expanded ring
-    if (qualifyingCells.length >= 4) {
-      cells = qualifyingCells;
+    // Offline, pure darkness pre-filter (no I/O): only spend an Overpass /
+    // Valhalla call on cells that could possibly satisfy the darkness bar.
+    const darknessQualified =
+      input.minSqm === undefined
+        ? band
+        : band.filter((c) => calculateLocationSqm(c.lat, c.lon) >= input.minSqm!);
+
+    prevRadius = outerRadiusKm;
+
+    if (darknessQualified.length === 0) continue;
+
+    darknessQualified.sort(
+      (a, b) => haversineKm(origin, a) - haversineKm(origin, b),
+    );
+    const cellsForQuery = darknessQualified.slice(
+      0,
+      SEARCH_CONFIG.threshold.candidateCellCount,
+    );
+
+    // One batched Overpass call for this band's candidate cells.
+    const snapResult = await fetchSnapTargetsForCells(cellsForQuery);
+    if (snapResult.partial) partial.push("overpass");
+    const targets = snapResult.targets;
+
+    const snapped = dedupeSpots(snapCells(cellsForQuery, targets));
+
+    // Guarantee actionable results even where OSM has no tagged POI: build
+    // structured fallback spots from the candidate cells themselves.
+    const fallback = buildRawFallback(cellsForQuery, origin);
+    const combinedSpots: SnappedSpot[] = [...snapped];
+    for (const fb of fallback) {
+      const tooClose = combinedSpots.some((s) => haversineKm(s, fb) < 5.0);
+      if (!tooClose) combinedSpots.push(fb);
     }
-  }
+    const spots: SnappedSpot[] = combinedSpots.length > 0 ? combinedSpots : fallback;
+    if (spots.length === 0) continue;
 
-  // 2. One batched Overpass call for candidate cells.
-  const snapResult = await fetchSnapTargetsForCells(cells);
-  if (snapResult.partial) partial.push("overpass");
-  const targets = snapResult.targets;
+    // One matrix call for this band's spots.
+    const destinations = spots.map((s) => ({ lat: s.lat, lon: s.lon }));
+    const matrix = await fetchMatrix([origin], destinations);
+    if (matrix.estimated) matrixEstimated = true;
+    const minutes = matrix.minutes[0] ?? [];
 
-  // 3. Snap each cell to the best legal spot.
-  const snapped = dedupeSpots(snapCells(cells, targets));
-
-  // If no legal spots exist in the OSM dataset for remote areas, build structured fallback spots
-  // from candidate cells to guarantee the user ALWAYS receives directions links to dark spots.
-  const fallback = buildRawFallback(cells, origin);
-  const combinedSpots: SnappedSpot[] = [...snapped];
-  for (const fb of fallback) {
-    const tooClose = combinedSpots.some((s) => haversineKm(s, fb) < 5.0);
-    if (!tooClose) {
-      combinedSpots.push(fb);
-    }
-  }
-
-  const spots: SnappedSpot[] = combinedSpots.length > 0 ? combinedSpots : fallback;
-
-  // 4. ONE matrix call for all spots.
-  const destinations = spots.map((s) => ({ lat: s.lat, lon: s.lon }));
-  const matrix = await fetchMatrix([origin], destinations);
-  if (matrix.estimated) partial.push("valhalla");
-
-  const minutes = matrix.minutes[0] ?? [];
-
-  // 5. Build CandidateSpot list (with the "best" score) and sort by drive time.
-  const candidates: CandidateSpot[] = spots
-    .map((spot, i) => {
+    const candidates: CandidateSpot[] = spots.map((spot, i) => {
       const distKm = haversineKm(origin, spot);
       const driveTimeMin = Number.isFinite(minutes[i])
         ? Math.round(minutes[i])
-        : Math.max(1, Math.round((distKm * 1.35) / 70 * 60));
+        : Math.max(1, Math.round(estimatedDriveMinKm(distKm)));
 
       const sqmMpsas = spot.sqmMpsas ?? calculateLocationSqm(spot.lat, spot.lon);
       const driveTimeEstimated = matrix.estimated || !Number.isFinite(minutes[i]);
@@ -159,25 +180,42 @@ export async function thresholdSearch(
         scoreReasons,
         rank: 1,
       };
-    })
-    .filter((c) => input.maxDriveTimeMin === undefined || c.driveTimeMin <= input.maxDriveTimeMin);
+    });
 
-  // Apply the darkness/greenery/openness filters strictly.
-  // 1. Darkness filter: strictly exclude any site with a higher Bortle number (i.e. SQM < minSqm).
-  // 2. Openness filter: strictly enforce minimum horizon openness.
-  // 3. Greenery filter: strictly enforce minimum nature / natural setting.
-  const qualifying = candidates.filter(
-    (c) =>
-      (input.minSqm === undefined || (c.sqmMpsas !== null && c.sqmMpsas >= input.minSqm)) &&
-      (input.minOpenness === undefined || c.openness >= input.minOpenness) &&
-      (input.minGreenery === undefined || c.greenery >= input.minGreenery),
-  );
+    sawAnyCandidates = sawAnyCandidates || candidates.length > 0;
 
-  // If strict filtering returned nothing, find the closest spots with the best available darkness
-  const eligible = qualifying.length > 0 ? qualifying : candidates.sort((a, b) => (b.sqmMpsas ?? 0) - (a.sqmMpsas ?? 0));
+    // Strict filtering — a spot must satisfy EVERY filter the user set. We
+    // never relax this to "closest available" (that would silently show a
+    // brighter Bortle tier than requested, which is exactly the bug users
+    // reported).
+    const bandQualifying = candidates.filter(
+      (c) =>
+        (input.maxDriveTimeMin === undefined || c.driveTimeMin <= input.maxDriveTimeMin) &&
+        (input.minSqm === undefined || (c.sqmMpsas !== null && c.sqmMpsas >= input.minSqm)) &&
+        (input.minOpenness === undefined || c.openness >= input.minOpenness) &&
+        (input.minGreenery === undefined || c.greenery >= input.minGreenery),
+    );
 
-  // Sort candidates primarily by shortest drive time to closest destination, with darker sky as tie-breaker
-  const ranked = eligible.sort((a, b) => {
+    if (bandQualifying.length > 0) {
+      qualifying = bandQualifying;
+      break;
+    }
+    // Nothing in this band satisfied every filter — keep expanding outward
+    // rather than settling for a non-qualifying result.
+  }
+
+  if (qualifying.length === 0) {
+    if (sawAnyCandidates) {
+      partial.push(
+        "no verified site met your darkness/openness/greenery filters within the search radius",
+      );
+    } else {
+      partial.push("no candidate sites found within the search radius");
+    }
+  }
+
+  // Sort by shortest drive time first, darker sky as a tie-breaker.
+  const ranked = [...qualifying].sort((a, b) => {
     if (Math.abs(a.driveTimeMin - b.driveTimeMin) > 5) {
       return a.driveTimeMin - b.driveTimeMin;
     }
@@ -188,17 +226,14 @@ export async function thresholdSearch(
     c.rank = i + 1;
   });
 
-  const filteredOutCount = candidates.length - eligible.length;
-
   const top = ranked.slice(0, SEARCH_CONFIG.threshold.returnCount);
-  if (filteredOutCount > 0) partial.push("some spots below your darkness/greenery/openness filters were hidden");
 
   return {
     origin: { lat: input.lat, lon: input.lon },
     mode: "threshold",
     spots: top,
     partial,
-    estimated: matrix.estimated,
+    estimated: matrixEstimated,
     generatedAtMs: input.nowMs,
   };
 }
@@ -214,7 +249,6 @@ function buildRawFallback(
 ): SnappedSpot[] {
   return cells.map((cell, idx) => {
     const dir = cardinalDirection(origin, cell);
-    const distKm = haversineKm(origin, cell);
     const sqmMpsas = cell.sqmMpsas ?? calculateLocationSqm(cell.lat, cell.lon);
 
     const nameOptions = [

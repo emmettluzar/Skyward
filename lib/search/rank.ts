@@ -2,10 +2,10 @@
  * "Best" composite score for a candidate spot (prd.md §4.1 + .clinerules §3).
  *
  * The user-facing question is "which spot is *best* within my drive time?" —
- * not merely "which is darkest" or "which is closest". This module combines the
- * signals we already model into one 0–1 number plus plain-language reasons:
+ * not merely "which is closest". This module combines the signals we already
+ * model into one 0–1 number plus plain-language reasons:
  *
- *   score = w_open·openness + w_park·parking + w_access·access
+ *   score = w_open·openness + w_green·greenery + w_park·parking + w_access·access
  *         + w_dark·S_dark + w_close·closeness
  *
  *   openness       → OSM tag proxy for open sky / greenery (prd.md §6)
@@ -19,10 +19,22 @@
  * re-deriving the sacred formula. When the Phase 0 raster is unpublished
  * (sqmMpsas === null) we contribute a neutral 0.5 and record "darkness unknown"
  * in the reasons — we never fabricate a Bortle value (.clinerules §0.3).
+ *
+ * BUGFIX (audit): the composite score alone is a weighted SUM, so a bright
+ * Bortle 5 site with slightly better parking/access/openness could outscore
+ * a genuinely darker Bortle 4 site — an inversion users correctly flagged as
+ * wrong for a *dark-sky* trip planner, where darkness is the entire point of
+ * the trip. `rankByBest` now sorts primarily by modeled Bortle tier (darker
+ * always wins), then by drive time within the same tier (closer wins, beyond
+ * a small tolerance), and only uses the composite score to break remaining
+ * ties. This guarantees no brighter site can ever rank above a darker one
+ * "under comparable conditions" while still surfacing the richer composite
+ * signal as the tie-breaker and in the UI's reason chips.
  */
 
 import { SEARCH_CONFIG } from "./config";
 import { darknessFactor } from "@/lib/scoring/quality";
+import { bortleFromSqm } from "@/lib/darkness/bortle";
 import type { CandidateSpot, AccessConfidence } from "@/lib/types/places";
 
 /** Access confidence → 0..1 score (verified is best; verify-access lowest). */
@@ -99,12 +111,31 @@ export function bestScore(input: BestScoreInput): BestScoreResult {
 }
 
 /**
- * Assign a "best" score to each spot, then sort by score descending so the
- * "best within reach" tab ranks genuinely-best first (not simply closest).
+ * Modeled Bortle tier for sorting. Unknown darkness (raster unpublished AND
+ * no modeled fallback available) sorts after every known tier — we never let
+ * an unknown-darkness spot masquerade as darker than a known-darker one, nor
+ * do we drop it entirely (prd.md §4 honesty requirement).
+ */
+function bortleTierOf(sqmMpsas: number | null): number {
+  return sqmMpsas !== null ? bortleFromSqm(sqmMpsas) : 10;
+}
+
+/**
+ * Assign a "best" score to each spot, then sort:
+ *   1. Modeled Bortle tier ascending (darker sky always ranks first — fixes
+ *      the "Bortle 5 above Bortle 4" inversion; darkness is the entire point
+ *      of a dark-sky trip planner, so it is never outweighed by parking or
+ *      openness).
+ *   2. Drive time ascending, within the same tier, beyond a small tolerance
+ *      (closer wins — fixes "farther site of the same Bortle tier ranks
+ *      above a genuinely closer one").
+ *   3. Composite "best" score descending, as the final tie-breaker.
  */
 export function rankByBest(
   spots: readonly CandidateSpot[],
 ): CandidateSpot[] {
+  const DRIVE_TIME_TOLERANCE_MIN = 5;
+
   const scored = spots.map((spot) => {
     const { score, reasons } = bestScore({
       openness: spot.openness,
@@ -117,7 +148,18 @@ export function rankByBest(
     return { ...spot, score, scoreReasons: reasons };
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => {
+    const tierA = bortleTierOf(a.sqmMpsas);
+    const tierB = bortleTierOf(b.sqmMpsas);
+    if (tierA !== tierB) return tierA - tierB;
+
+    if (Math.abs(a.driveTimeMin - b.driveTimeMin) > DRIVE_TIME_TOLERANCE_MIN) {
+      return a.driveTimeMin - b.driveTimeMin;
+    }
+
+    return b.score - a.score;
+  });
+
   scored.forEach((c, i) => {
     c.rank = i + 1;
   });

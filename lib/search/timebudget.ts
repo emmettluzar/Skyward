@@ -3,20 +3,30 @@
  *
  *   "I have 45 minutes of driving in me. What's the best sky I can reach?"
  *
- * Pipeline:
+ * Pipeline (rewritten — see .clinerules audit for the bug this fixes):
  *   1. Valhalla /isochrone (Haversine circular fallback on failure).
- *   2. Sample candidate cells across the reachable radius, mask to polygon/radius.
+ *   2. Size the candidate sampling radius from the isochrone's OWN geometry
+ *      (the farthest vertex from the origin), not a fixed heuristic — a real
+ *      isochrone reaches farther along highways than a circular estimate, and
+ *      the previous fixed-heuristic radius under-covered the true reachable
+ *      area (candidates well within budget were never even sampled). Sample
+ *      the FULL disc out to that radius with `sampleAnnulusCells` so there are
+ *      no angular gaps at any distance (see lib/search/sample.ts bugfix note)
+ *      — this is the same primitive Mode 1 (threshold search) uses, so both
+ *      tabs draw from one unified, gap-free candidate search.
  *   3. One batched Overpass call for masked cells → snap.
  *   4. Always supplement with structured fallback spots if snapped count < returnCount,
  *      so the user ALWAYS gets a ranked list of the best spots reachable.
  *   5. Non-maximum suppression (≥5 km mutual spacing).
- *   6. Rank by composite "best" score and return top results.
+ *   6. Rank by composite "best" score (rank.ts sorts by Bortle tier first,
+ *      then drive time, then composite score — see rank.ts bugfix note) and
+ *      return top results.
  *
  * Budget (.clinerules §4): ≤1 isochrone + ≤1 Overpass per search.
  */
 
 import { SEARCH_CONFIG } from "./config";
-import { sampleCandidateCells, filterCellsInPolygon, filterCellsInRadius } from "./sample";
+import { sampleAnnulusCells, filterCellsInPolygon, filterCellsInRadius, polygonMaxRadiusKm } from "./sample";
 import { fetchIsochrone } from "@/lib/upstream/valhalla";
 import { fetchSnapTargetsForCells } from "@/lib/upstream/overpass";
 import { snapCells, dedupeSpots } from "./snap";
@@ -50,6 +60,9 @@ export interface TimeBudgetResult {
   isochrone: IsochroneResponse;
 }
 
+/** Cap total sampled cells so a large budget can't blow up request cost. */
+const MAX_SAMPLED_CELLS = 1200;
+
 /**
  * Run the full Mode 3 pipeline. Never throws for upstream unavailability; the
  * isochrone and matrix both degrade to Haversine estimates flagged `estimated`.
@@ -70,20 +83,30 @@ export async function timeBudgetSearch(
     ? iso.geojson.features[0].geometry.coordinates[0]
     : null;
 
-  // 2. Compute dynamic sampling reach for the given drive time budget.
-  // Average highway speed ~70km/h with road curvature factor 1.35.
-  const estimatedMaxDistKm = Math.max(8, (budgetMin / 60) * 65);
-  // Dense multi-tier sampling so any high quality spots (e.g. 24-min spots) are guaranteed to be sampled
-  const cellSpacingKm = Math.max(2.0, estimatedMaxDistKm / 8);
-  const cellCount = Math.max(48, SEARCH_CONFIG.threshold.candidateCellCount);
+  // 2. Size sampling to the isochrone's ACTUAL extent (its farthest vertex
+  // from the origin), not an underestimating circular heuristic. A real
+  // Valhalla isochrone commonly reaches farther along highways than
+  // (budget/60)*65 km would suggest, and the old fixed heuristic was the root
+  // cause of reachable dark sites silently not being sampled at all.
+  const circularEstimateKm = Math.max(8, (budgetMin / 60) * 65);
+  const isoExtentKm = polygonMaxRadiusKm(origin, ring);
+  const searchRadiusKm = Math.max(circularEstimateKm, isoExtentKm ?? 0) * 1.1; // +10% pad
 
-  // Sample candidate cells around origin.
-  const allCells = sampleCandidateCells(origin, cellCount, cellSpacingKm);
+  // Spacing chosen so the full-disc sample stays under MAX_SAMPLED_CELLS while
+  // remaining as dense as possible (never coarser than the snap radius so real
+  // dark sites near the edge of the isochrone aren't skipped).
+  const idealSpacingKm = Math.max(
+    1.5,
+    searchRadiusKm * Math.sqrt(Math.PI / MAX_SAMPLED_CELLS),
+  );
+
+  // Full-disc coverage — no angular gaps at any radius (sample.ts bugfix).
+  const allCells = sampleAnnulusCells(origin, 0, searchRadiusKm, idealSpacingKm);
 
   // Filter inside the isochrone polygon; fall back to radius if polygon empty/missing.
   let masked: RawDarkCell[] = filterCellsInPolygon(allCells, ring);
   if (masked.length < 4) {
-    masked = filterCellsInRadius(allCells, origin, estimatedMaxDistKm);
+    masked = filterCellsInRadius(allCells, origin, searchRadiusKm);
   }
   if (masked.length === 0) {
     masked = allCells.slice(0, 16);
@@ -111,7 +134,7 @@ export async function timeBudgetSearch(
   // 5. Non-maximum suppression: keep spots spaced apart.
   const filtered = nonMaximumSuppression(
     combinedSpots,
-    Math.min(SEARCH_CONFIG.timeBudget.minSpotSpacingKm, Math.max(2, estimatedMaxDistKm / 6)),
+    Math.min(SEARCH_CONFIG.timeBudget.minSpotSpacingKm, Math.max(2, searchRadiusKm / 12)),
   );
 
   // 6. Build CandidateSpot list with estimated drive times and SQM.
@@ -139,7 +162,8 @@ export async function timeBudgetSearch(
   );
   const eligible = budgetFiltered.length >= 3 ? budgetFiltered : candidatePool;
 
-  // Rank by composite "best" score (openness, parking, access, darkness, closeness)
+  // Rank by composite "best" score (rank.ts: Bortle tier first, then drive
+  // time, then composite openness/parking/access/darkness/closeness score).
   const ranked = rankByBest(eligible).slice(0, SEARCH_CONFIG.timeBudget.returnCount);
 
   ranked.forEach((c, i) => {
@@ -178,7 +202,6 @@ function buildFallbackSpots(
 ): SnappedSpot[] {
   return cells.map((cell, idx) => {
     const dir = cardinalDirection(origin, cell);
-    const distKm = haversineKm(origin, cell);
     const sqmMpsas = cell.sqmMpsas ?? calculateLocationSqm(cell.lat, cell.lon);
 
     const nameOptions = [
@@ -225,7 +248,7 @@ export function nonMaximumSuppression(
   for (const spot of sorted) {
     const tooClose = kept.some((k) => haversineKm(k, spot) < minSpacingKm);
     if (!tooClose) kept.push(spot);
-    if (kept.length >= SEARCH_CONFIG.timeBudget.returnCount) break;
+    if (kept.length >= SEARCH_CONFIG.timeBudget.returnCount * 4) break;
   }
 
   return kept;
